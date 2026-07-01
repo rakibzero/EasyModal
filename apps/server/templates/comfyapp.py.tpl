@@ -233,12 +233,43 @@ def download_all_models():
 @modal.concurrent(max_inputs=CONFIG["max_inputs"])
 @modal.web_server(8188, startup_timeout=1800)
 def ui():
-    download_models()
-    ensure_comfy_models_symlink()
     import sys
+    import time
+    import urllib.request
+
+    # IMPORTANT: do NOT call download_models() here on every cold start.
+    # Models are prefetched onto the volume via `download_all_models` (the
+    # Prefetch step) and persist across cold starts. Re-running download_models()
+    # here is what caused the "URL loads for hours" symptom — every cold container
+    # re-stat/re-downloaded 30+ models while Modal's proxy held the browser request.
+    # Only ensure the model-dir symlinks are in place (fast, idempotent).
+    ensure_comfy_models_symlink()
+
+    # Spawn ComfyUI as a background process.
     subprocess.Popen(
         [sys.executable, f"{COMFY_DIR}/ComfyUI/main.py", "--listen", "0.0.0.0", "--port", "8188"],
         cwd=f"{COMFY_DIR}/ComfyUI",
+    )
+
+    # BLOCK until ComfyUI actually answers an HTTP request. Modal's @web_server
+    # treats the function return as "container ready" — if we return before
+    # ComfyUI can serve, the proxy routes browser requests to a half-started
+    # container and they hang. This poll closes that gap.
+    health_url = "http://127.0.0.1:8188/"
+    deadline = time.time() + 300  # wait up to 5 minutes for ComfyUI to be ready
+    last_err = None
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(health_url, timeout=5) as r:
+                if r.status == 200:
+                    print("=== ComfyUI is ready and serving HTTP — container is now live ===", flush=True)
+                    return
+        except Exception as exc:
+            last_err = exc
+            time.sleep(2)
+    raise RuntimeError(
+        f"ComfyUI did not become ready within 5 minutes (last error: {last_err}). "
+        f"Check container logs."
     )
 
 
