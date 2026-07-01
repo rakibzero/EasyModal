@@ -11,7 +11,8 @@
   ],
   "scripts": {
     "dev": "concurrently -n web,server -c blue,green \"npm -w apps/web run dev\" \"npm -w apps/server run dev\"",
-    "build": "npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/server run build",
+    "clean": "find . -path ./node_modules -prune -o -name \"*.tsbuildinfo\" -exec rm {} + && rm -rf apps/*/dist packages/*/dist",
+    "build": "npm run clean && npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/server run build",
     "start": "npm run build && npm -w apps/server run start",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
