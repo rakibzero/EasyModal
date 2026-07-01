@@ -106,3 +106,28 @@ export async function setHuggingFaceSecret(hfToken: string): Promise<{ ok: boole
     return { ok: false, message: `Could not set Modal secret: ${msg.slice(0, 200)}` };
   }
 }
+
+/**
+ * Ensure the `ai-toolkit-auth` Modal secret exists (required by the AI Toolkit
+ * web server for its secondary auth gate). If the user supplied a token use it;
+ * otherwise generate a random one. Idempotent — safe to call before every
+ * AI Toolkit deploy. Returns the token that's now stored.
+ */
+export async function ensureAiToolkitAuthSecret(
+  userToken?: string,
+): Promise<{ ok: boolean; token: string; message: string }> {
+  const { randomBytes } = await import('node:crypto');
+  const token = userToken && userToken.trim().length >= 8
+    ? userToken.trim()
+    : `em_${randomBytes(32).toString('base64url')}`;
+  try {
+    await execFileP('modal', ['secret', 'put', 'ai-toolkit-auth', `AI_TOOLKIT_AUTH=${token}`], {
+      timeout: 20_000,
+      env: process.env,
+    });
+    return { ok: true, token, message: 'AI Toolkit auth secret stored on Modal.' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, token, message: `Could not set ai-toolkit-auth secret: ${msg.slice(0, 200)}` };
+  }
+}

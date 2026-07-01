@@ -5,6 +5,7 @@ export type StepId = 'setup' | 'keys' | 'configure' | 'workflows' | 'deploy' | '
 
 /** Default deploy config surfaced in the Configure step. */
 export const DEFAULT_CONFIG: DeployConfig = {
+  target: 'comfyui',
   appName: 'easymodal',
   gpu: 'A100-80GB',
   maxInputs: 2,

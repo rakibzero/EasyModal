@@ -1,0 +1,69 @@
+---
+job: extension
+config:
+  name: "my_ltx23_lora_v1"
+  process:
+    - type: 'sd_trainer'
+      training_folder: "/data/output"
+      device: cuda:0
+      # trigger_word: "mytrigger"
+      network:
+        type: "lora"
+        linear: 16
+        linear_alpha: 16
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 4
+      datasets:
+        - folder_path: "/data/datasets/my-ltx23-dataset"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          shuffle_tokens: true
+          resolution: [512, 768]
+          video:
+            num_frames: 65
+            fps: 24
+            do_audio: false
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation_steps: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"
+        lr: 2e-5
+        cache_text_embeddings: true
+        dtype: bf16
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99
+      model:
+        arch: "ltx2.3"
+        name_or_path: "Lightricks/LTX-2.3/ltx-2.3-22b-dev.safetensors"
+        quantize: true
+        qtype: "uint4"
+        quantize_te: true
+        qtype_te: "qfloat8"
+        te_name_or_path: "Lightricks/gemma-3-12b-it-qat-q4_0-unquantized"
+        cache_text_embeddings: true
+      sample:
+        sampler: "flowmatch"
+        sample_every: 250
+        width: 512
+        height: 512
+        num_frames: 65
+        fps: 24
+        prompts:
+          - "a cat walking on a beach, cinematic lighting"
+          - "drone shot of a mountain at sunset"
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 4
+        sample_steps: 20
+meta:
+  name: "[name]"
+  version: '1.0'

@@ -7,21 +7,26 @@ import { dirname, join as joinPath } from 'node:path';
 import { resolveNodes, resolveModels, type NodeClone, type PackModel } from './packs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = joinPath(__dirname, '..', '..', 'templates', 'comfyapp.py.tpl');
+const COMFY_TEMPLATE = joinPath(__dirname, '..', '..', 'templates', 'comfyapp.py.tpl');
+const AITOOLKIT_TEMPLATE = joinPath(__dirname, '..', '..', 'templates', 'aitoolkit_app.py.tpl');
+const AITOOLKIT_CONFIGS = joinPath(__dirname, '..', '..', 'templates', 'aitoolkit-config');
 const WORKFLOWS_ROOT = joinPath(__dirname, '..', '..', 'workflows');
 
 export interface DeployConfig {
+  /** Which app to deploy — picks the template. Default 'comfyui'. */
+  target?: 'comfyui' | 'ai-toolkit';
   appName: string;
   gpu: string;
   maxInputs: number;
   timeoutSeconds: number;
   memoryMb: number;
   cpu: number;
-  /** Selected workflow pack ids. Always includes 'wan22'. */
+  /** Selected workflow pack ids. Always includes 'wan22'. ComfyUI only. */
   packs?: string[];
 }
 
 export const DEFAULT_DEPLOY_CONFIG: DeployConfig = {
+  target: 'comfyui',
   appName: 'easymodal',
   gpu: 'A100-80GB',
   maxInputs: 2, // safe default — single Wan2.2 inference uses 30-50GB VRAM
@@ -97,10 +102,36 @@ function renderWorkflowBundle(workflows: { pack: string; dir: string; file: stri
     .join('\n');
 }
 
-/** Render the comfyapp.py template with the given config. */
+/** Base64-inline every YAML config from templates/aitoolkit-config/ into the image. */
+function renderAiToolkitConfigBundle(): string {
+  const CFG_DIR = '/root/ai-toolkit/config';
+  if (!existsSync(AITOOLKIT_CONFIGS)) {
+    return `    .run_commands("mkdir -p ${CFG_DIR} && echo no bundled configs")`;
+  }
+  const files = readdirSync(AITOOLKIT_CONFIGS).filter((f) => /\.(ya?ml)$/i.test(f));
+  if (files.length === 0) {
+    return `    .run_commands("mkdir -p ${CFG_DIR} && echo no bundled configs")`;
+  }
+  return files
+    .map((file) => {
+      const raw = readFileSync(joinPath(AITOOLKIT_CONFIGS, file));
+      const b64 = raw.toString('base64');
+      const safeName = file.replace(/[^A-Za-z0-9._-]/g, '_');
+      return `    .run_commands("mkdir -p ${CFG_DIR} && echo '${b64}' | base64 -d > '${CFG_DIR}/${safeName}'")`;
+    })
+    .join('\n');
+}
+
+/** Render the appropriate template for the deploy target. */
 export function renderTemplate(cfg: DeployConfig): string {
+  if (cfg.target === 'ai-toolkit') return renderAiToolkitTemplate(cfg);
+  return renderComfyTemplate(cfg);
+}
+
+/** Render the comfyapp.py template with the given config. */
+function renderComfyTemplate(cfg: DeployConfig): string {
   const packs = cfg.packs ?? ['wan22'];
-  const tpl = readFileSync(TEMPLATE_PATH, 'utf8');
+  const tpl = readFileSync(COMFY_TEMPLATE, 'utf8');
   const rendered = tpl
     .replaceAll('{{APP_NAME}}', cfg.appName)
     .replaceAll('{{GPU}}', cfg.gpu)
@@ -112,6 +143,18 @@ export function renderTemplate(cfg: DeployConfig): string {
     .replaceAll('{{EXTRA_MODELS}}', renderExtraModels(resolveModels(packs)))
     .replaceAll('{{WORKFLOW_BUNDLE}}', renderWorkflowBundle(collectWorkflows(packs)));
   return rendered;
+}
+
+/** Render the aitoolkit_app.py template. Same hardware placeholders; config-bundle
+ *  instead of workflow-bundle; no packs/nodes. */
+function renderAiToolkitTemplate(cfg: DeployConfig): string {
+  const tpl = readFileSync(AITOOLKIT_TEMPLATE, 'utf8');
+  return tpl
+    .replaceAll('{{APP_NAME}}', cfg.appName)
+    .replaceAll('{{GPU}}', cfg.gpu)
+    .replaceAll('{{MEMORY_MB}}', String(cfg.memoryMb))
+    .replaceAll('{{CPU}}', String(cfg.cpu))
+    .replaceAll('{{CONFIG_BUNDLE}}', renderAiToolkitConfigBundle());
 }
 
 export interface DeployCallbacks {
@@ -126,10 +169,11 @@ export interface DeployCallbacks {
  */
 export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): ChildProcess {
   const workdir = mkdtempSync(join(tmpdir(), 'easymodal-deploy-'));
-  const appFile = join(workdir, 'comfyapp.py');
+  const fileName = cfg.target === 'ai-toolkit' ? 'aitoolkit_app.py' : 'comfyapp.py';
+  const appFile = join(workdir, fileName);
   writeFileSync(appFile, renderTemplate(cfg), { mode: 0o600 });
 
-  const child = spawn('modal', ['deploy', 'comfyapp.py'], {
+  const child = spawn('modal', ['deploy', fileName], {
     cwd: workdir,
     env: process.env,
   });

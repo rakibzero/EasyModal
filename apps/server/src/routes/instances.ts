@@ -77,6 +77,18 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         message: `Could not activate Modal account: ${String((e as Error).message || e).slice(0, 200)}`,
       });
     }
+
+    // AI Toolkit needs an extra auth secret (its web UI gates on AI_TOOLKIT_AUTH).
+    if (cfg.target === 'ai-toolkit') {
+      const { ensureAiToolkitAuthSecret } = await import('../accounts/modal.js');
+      const authRes = await ensureAiToolkitAuthSecret();
+      if (!authRes.ok) {
+        return reply.code(400).send({ ok: false, message: authRes.message });
+      }
+      bus.info(`AI Toolkit auth secret ready. Your UI access token: ${authRes.token}`, {
+        instanceId: undefined,
+      });
+    }
     const inst: InstanceRecord = {
       id: randomUUID(),
       accountId,

@@ -26,8 +26,28 @@ export type InstanceStatus =
   | 'failed'
   | 'cold';
 
-/** Deploy-time configuration injected into the bundled comfyapp.py template. */
+/** What gets deployed to Modal. Determines which template is rendered. */
+export type DeployTarget = 'comfyui' | 'ai-toolkit';
+
+export const DEPLOY_TARGETS: { id: DeployTarget; label: string; description: string; defaultAppName: string }[] = [
+  {
+    id: 'comfyui',
+    label: 'ComfyUI',
+    description: 'Node-based image/video generation UI (Wan2.2, SCAIL-2, image editing, upscaling).',
+    defaultAppName: 'easymodal',
+  },
+  {
+    id: 'ai-toolkit',
+    label: 'AI Toolkit (LoRA Training)',
+    description: 'ostris/ai-toolkit — fine-tune LoRAs for Flux/Wan/LTX video models via web UI.',
+    defaultAppName: 'ai-toolkit-finetune',
+  },
+];
+
+/** Deploy-time configuration injected into the bundled template. */
 export interface DeployConfig {
+  /** Which app to deploy — picks the template. Default 'comfyui'. */
+  target?: DeployTarget;
   /** Modal GPU type, e.g. 'A100-80GB', or 'any' for no GPU. */
   gpu: string;
   /**
@@ -43,7 +63,7 @@ export interface DeployConfig {
   cpu: number;
   /** Modal app name. */
   appName: string;
-  /** Selected workflow packs (each adds nodes+models to the build). */
+  /** Selected workflow packs (each adds nodes+models to the build). ComfyUI only. */
   packs?: string[];
 }
 

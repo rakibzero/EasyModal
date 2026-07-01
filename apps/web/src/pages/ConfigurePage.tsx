@@ -4,6 +4,8 @@ import {
   CPU_OPTIONS,
   TIMEOUT_OPTIONS_MIN,
   WORKFLOW_PACKS,
+  DEPLOY_TARGETS,
+  type DeployTarget,
 } from '@easymodal/shared';
 import { useAppStore } from '../store/appStore';
 
@@ -27,6 +29,16 @@ export function ConfigurePage() {
 
   const selectedGpu = GPU_OPTIONS.find((g) => g.value === cfg.gpu);
   const packs = cfg.packs ?? [];
+  const target = cfg.target ?? 'comfyui';
+
+  function selectTarget(id: DeployTarget) {
+    const def = DEPLOY_TARGETS.find((t) => t.id === id)!;
+    // Reset app name to the target's default when switching (only if the user
+    // hasn't customized it away from the other target's default).
+    const otherDefault = DEPLOY_TARGETS.find((t) => t.id !== id)?.defaultAppName;
+    const appName = cfg.appName === otherDefault || !cfg.appName ? def.defaultAppName : cfg.appName;
+    setCfg({ target: id, appName });
+  }
 
   function togglePack(id: string) {
     const next = packs.includes(id) ? packs.filter((p) => p !== id) : [...packs, id];
@@ -39,8 +51,36 @@ export function ConfigurePage() {
     <div className="mx-auto max-w-2xl">
       <h2 className="text-xl font-semibold text-white">Configure</h2>
       <p className="mt-1 text-sm text-slate-400">
-        Choose the hardware Modal provisions and which workflow packs to bundle.
+        Choose what to deploy, the hardware Modal provisions, and which packs to bundle.
       </p>
+
+      {/* Deploy target */}
+      <section className="mt-6 space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+        <h3 className="text-sm font-semibold text-slate-300">What do you want to deploy?</h3>
+        {DEPLOY_TARGETS.map((t) => {
+          const on = target === t.id;
+          return (
+            <label
+              key={t.id}
+              className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
+                on ? 'border-sky-700 bg-sky-950/30' : 'border-slate-800 bg-slate-900/30'
+              }`}
+            >
+              <input
+                type="radio"
+                name="deploy-target"
+                className="mt-0.5 h-4 w-4 accent-sky-500"
+                checked={on}
+                onChange={() => selectTarget(t.id)}
+              />
+              <div className="flex-1">
+                <span className="text-sm font-medium text-white">{t.label}</span>
+                <p className="mt-0.5 text-xs text-slate-400">{t.description}</p>
+              </div>
+            </label>
+          );
+        })}
+      </section>
 
       {/* Hardware */}
       <section className="mt-6 space-y-4 rounded-xl border border-slate-800 bg-slate-900/40 p-5">
@@ -137,7 +177,8 @@ export function ConfigurePage() {
         </Field>
       </section>
 
-      {/* Workflow packs */}
+      {/* Workflow packs (ComfyUI only) */}
+      {target === 'comfyui' && (
       <section className="mt-5 space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-5">
         <div>
           <h3 className="text-sm font-semibold text-slate-300">Workflow Packs</h3>
@@ -175,6 +216,7 @@ export function ConfigurePage() {
           );
         })}
       </section>
+      )}
 
       <div className="mt-6 flex justify-end">
         <button
