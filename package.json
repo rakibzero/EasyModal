@@ -1,0 +1,29 @@
+{
+  "name": "wan22-animate-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deploy ComfyUI on Modal by pasting two keys. The missing UI.",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,server -c blue,green \"npm -w apps/web run dev\" \"npm -w apps/server run dev\"",
+    "build": "npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/server run build",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write .",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "eslint": "^9.15.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

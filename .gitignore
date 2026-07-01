@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets & env (NEVER commit — .env contains live Modal + HF tokens)
+.env
+.env.*
+!.env.example
+.launcher.env
+
+# Python (existing brownfield)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated outputs
+output/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# FSDI planning temp
+.planning/tmp/
