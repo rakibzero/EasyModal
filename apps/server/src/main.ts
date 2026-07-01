@@ -24,24 +24,25 @@ async function start(): Promise<void> {
   // bus.info(...) so the UI can stream them over SSE. Per-line pino log
   // mirroring is intentionally not done (too noisy); we emit targeted events.
 
+  // Permissive CORS for localhost dev/preview origins only (the Vite dev proxy
+  // and preview server run on different ports). Registered as a global hook
+  // BEFORE routes so it intercepts OPTIONS preflight.
+  app.addHook('onRequest', async (req, reply) => {
+    const origin = req.headers.origin;
+    if (origin && /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin)) {
+      reply.header('Access-Control-Allow-Origin', origin);
+      reply.header('Vary', 'Origin');
+      reply.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+      reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') {
+      reply.code(204);
+      return reply.send();
+    }
+  });
+
   await healthRoutes(app);
   await eventsRoutes(app);
-
-  await app.register(
-    async (corsApp) => {
-      // Permissive CORS for localhost dev only.
-      corsApp.addHook('onRequest', async (req, reply) => {
-        const origin = req.headers.origin;
-        if (origin && /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin)) {
-          reply.header('Access-Control-Allow-Origin', origin);
-          reply.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-          reply.header('Access-Control-Allow-Headers', 'Content-Type');
-        }
-        if (req.method === 'OPTIONS') return reply.code(204).send();
-      });
-    },
-    { name: 'cors-local' },
-  );
 
   const port = await findFreePort(DEFAULT_PORT);
   const url = `http://${HOST}:${port}`;
