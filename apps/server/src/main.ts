@@ -5,6 +5,7 @@ import { healthRoutes } from './routes/health.js';
 import { eventsRoutes } from './routes/events.js';
 import { accountRoutes } from './routes/accounts.js';
 import { instanceRoutes } from './routes/instances.js';
+import { workflowRoutes } from './routes/workflows.js';
 import { staticRoutes } from './routes/static.js';
 import { findFreePort } from './util/port.js';
 
@@ -48,6 +49,7 @@ async function start(): Promise<void> {
   await eventsRoutes(app);
   await accountRoutes(app);
   await instanceRoutes(app);
+  await workflowRoutes(app);
 
   // Trivial endpoint so the UI can confirm the server is reachable in one round-trip.
   app.post('/api/ping', async () => ({ ok: true }));

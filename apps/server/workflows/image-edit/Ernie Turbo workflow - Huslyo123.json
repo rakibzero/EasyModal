@@ -1,0 +1,671 @@
+{
+  "id": "a4d8098a-daa5-44c6-ae7b-ef18e4174c8f",
+  "revision": 0,
+  "last_node_id": 12,
+  "last_link_id": 9,
+  "nodes": [
+    {
+      "id": 2,
+      "type": "VAEDecode",
+      "pos": [
+        1160.6948859113581,
+        365.9244492397878
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 1
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.64",
+        "Node name for S&R": "VAEDecode",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "EmptyFlux2LatentImage",
+      "pos": [
+        26.90887718905651,
+        527.9577275558867
+      ],
+      "size": [
+        270,
+        170
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.18.1",
+        "Node name for S&R": "EmptyFlux2LatentImage",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        1376,
+        768,
+        1
+      ]
+    },
+    {
+      "id": 5,
+      "type": "CLIPTextEncode",
+      "pos": [
+        400.8985545691711,
+        247.9290182278754
+      ],
+      "size": [
+        390,
+        140
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.73",
+        "Node name for S&R": "CLIPTextEncode",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [
+        382.05362544332843,
+        -187.12108302880617
+      ],
+      "size": [
+        410,
+        370
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.73",
+        "Node name for S&R": "CLIPTextEncode",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "A highly realistic photograph of a large-scale public letter installation spelling \"HUSLYO123\" placed prominently in front of the Rijksmuseum in Amsterdam, inspired by the style and scale of the iconic I amsterdam sign. Each letter is monumental in size—approximately human-height or taller—constructed as solid 3D forms with clean edges and smooth surfaces, designed for people to interact with, sit on, and pose beside.\n\nThe letters are arranged in a straight line across the open museum square, evenly spaced and perfectly aligned, creating a strong horizontal visual anchor. The typography is bold, sans-serif, and highly legible, with a modern, slightly rounded geometric style. The surface of the letters is glossy, subtly reflecting ambient light and nearby movement. The color scheme is vibrant yet cohesive—primarily white with selected letters in red accents, echoing the aesthetic of Amsterdam’s famous signage.\n\nThe background features the full façade of the Rijksmuseum, with its historic red-brick architecture, arched passageway, and ornate detailing clearly visible. The composition is captured from a slightly low, frontal angle, ensuring both the full word \"HUSLYO123\" and the museum are clearly readable and balanced within the frame.\n\nThe scene includes a lively but natural crowd of tourists and locals interacting with the letters—some sitting on them, others standing nearby taking photos, adding authenticity and scale. The ground is paved with light stone tiles, showing subtle texture and wear.\n\nLighting is natural daylight, slightly warm, with soft shadows cast behind the letters and people, suggesting late morning or afternoon. The sky is partly cloudy with soft blue tones and diffused sunlight, creating even illumination across the scene.\n\nFine details include subtle reflections on the letter surfaces, realistic human poses and movement, slight imperfections in the pavement, and depth created by background perspective. The overall composition feels like a real travel photograph—clean, vibrant, and highly believable—capturing a popular photo spot in Amsterdam centered around the large \"HUSLYO123\" installation."
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 8,
+      "type": "CLIPLoader",
+      "pos": [
+        22.65433811030971,
+        -2.4415227706015514
+      ],
+      "size": [
+        270,
+        150
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            3,
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.73",
+        "Node name for S&R": "CLIPLoader",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "models": [
+          {
+            "name": "ministral-3-3b.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/text_encoders/ministral-3-3b.safetensors",
+            "directory": "text_encoders"
+          }
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "ministral-3-3b.safetensors",
+        "flux2",
+        "default"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "VAELoader",
+      "pos": [
+        25.250735081388257,
+        226.26218933940558
+      ],
+      "size": [
+        270,
+        110
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.73",
+        "Node name for S&R": "VAELoader",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "models": [
+          {
+            "name": "flux2-vae.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/vae/flux2-vae.safetensors",
+            "directory": "vae"
+          }
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "flux2-vae.safetensors"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "SaveImage",
+      "pos": [
+        1371.0025512389598,
+        -173.63505504263347
+      ],
+      "size": [
+        732.7005879249696,
+        491.14199170894403
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.1",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "ComfyUI"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "MarkdownNote",
+      "pos": [
+        -526.5107009898579,
+        -233.34393944698402
+      ],
+      "size": [
+        510,
+        561.3631269979203
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Note",
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "## Model Links (for Local Users)\n\n**diffusion_models**\n\n- [ernie-image-turbo.safetensors](https://huggingface.co/Comfy-Org/ERNIE-Image/blob/main/diffusion_models/ernie-image-turbo.safetensors)\n\n**text_encoders**\n\n- [ministral-3-3b.safetensors](https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/text_encoders/ministral-3-3b.safetensors)\n\n\n**vae**\n\n- [flux2-vae.safetensors](https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/vae/flux2-vae.safetensors)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   ├── 📂 diffusion_models/\n│   │   └── ernie-image-turbo.safetensors\n│   ├── 📂 text_encoders/\n│   │   ├── ministral-3-3b.safetensors\n│   └── 📂 vae/\n│       └── flux2-vae.safetensors\n```\n\n**Resolution**\n- 1024x1024\n- 848x1264\n- 1264x848\n- 768x1376\n- 896x1200\n- 1376x768\n- 1200x896\n\n**Recommended Parameters**\n- Guidance scale: 1.0\n- Inference steps: 8\n"
+      ],
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 7,
+      "type": "UNETLoader",
+      "pos": [
+        22.46950628267132,
+        -180.20882484515892
+      ],
+      "size": [
+        270,
+        110
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.73",
+        "Node name for S&R": "UNETLoader",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "models": [
+          {
+            "name": "ernie-image.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/diffusion_models/ernie-image.safetensors",
+            "directory": "diffusion_models"
+          }
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "ernie-image-turbo.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "KSampler",
+      "pos": [
+        871.563662918343,
+        -168.1119897803925
+      ],
+      "size": [
+        320,
+        474
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 6
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 7
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 8
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.64",
+        "Node name for S&R": "KSampler",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.7",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        614332595930655,
+        "randomize",
+        8,
+        1,
+        "res_multistep",
+        "simple",
+        1
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      11,
+      0,
+      2,
+      0,
+      "LATENT"
+    ],
+    [
+      2,
+      9,
+      0,
+      2,
+      1,
+      "VAE"
+    ],
+    [
+      3,
+      8,
+      0,
+      5,
+      0,
+      "CLIP"
+    ],
+    [
+      4,
+      8,
+      0,
+      6,
+      0,
+      "CLIP"
+    ],
+    [
+      5,
+      2,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      7,
+      0,
+      11,
+      0,
+      "MODEL"
+    ],
+    [
+      7,
+      6,
+      0,
+      11,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      8,
+      5,
+      0,
+      11,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      9,
+      3,
+      0,
+      11,
+      3,
+      "LATENT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Image Size",
+      "bounding": [
+        6.90885680720362,
+        427.9576835644399,
+        310,
+        290
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Prompt",
+      "bounding": [
+        358.0506167301055,
+        -263.6990190549742,
+        470,
+        670
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Model",
+      "bounding": [
+        1.964124691071902,
+        -263.35715978430176,
+        320,
+        670
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Sampler",
+      "bounding": [
+        840.8858271992585,
+        -262.6756285916167,
+        470,
+        670
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Save",
+      "bounding": [
+        1341.7924219658453,
+        -259.6207317745786,
+        803.1638821081924,
+        690.7982164331381
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5414784007981347,
+      "offset": [
+        1411.9015160566312,
+        693.4276302627289
+      ]
+    },
+    "frontendVersion": "1.42.10",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

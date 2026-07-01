@@ -60,6 +60,12 @@ export const api = {
   }) => postJson<{ ok: boolean; account: PublicAccount; huggingface: ValidationResult }>('/api/accounts', body),
   deleteAccount: (id: string) =>
     fetch('/api/accounts/' + id, { method: 'DELETE' }).then((r) => r.json()),
+  listWorkflows: () => getJson<{ categories: unknown[] }>('/api/workflows'),
+  resetNodes: (instanceId: string) =>
+    postJson<{ ok: boolean; output?: string; message?: string }>(
+      `/api/instances/${instanceId}/reset-nodes`,
+      {},
+    ),
 };
 
 /** Subscribe to the SSE event stream. Returns an unsubscribe function. */

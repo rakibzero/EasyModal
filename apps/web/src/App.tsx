@@ -5,6 +5,8 @@ import { StepRail } from './components/StepRail';
 import { StatusDot } from './components/StatusDot';
 import { SetupPage } from './pages/SetupPage';
 import { KeysPage } from './pages/KeysPage';
+import { ConfigurePage } from './pages/ConfigurePage';
+import { WorkflowsPage } from './pages/WorkflowsPage';
 import { DeployPage } from './pages/DeployPage';
 import { LaunchPage } from './pages/LaunchPage';
 
@@ -36,6 +38,8 @@ export function App() {
   const page = {
     setup: <SetupPage />,
     keys: <KeysPage />,
+    configure: <ConfigurePage />,
+    workflows: <WorkflowsPage />,
     deploy: <DeployPage />,
     launch: <LaunchPage />,
   }[currentStep];

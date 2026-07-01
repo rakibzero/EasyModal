@@ -62,6 +62,36 @@ export async function persistModalToken(
   );
 }
 
+/**
+ * Activate a specific account's Modal profile so the NEXT `modal deploy` /
+ * `modal run` targets that account. Called before every deploy.
+ *
+ * Each account is stored under a per-account profile name derived from its id,
+ * so switching accounts = switching the active profile. We (re)set the token
+ * first to be safe (idempotent), then mark the profile active.
+ */
+export async function activateAccountProfile(
+  accountId: string,
+  tokenId: string,
+  tokenSecret: string,
+): Promise<void> {
+  const profile = `wan22-${accountId}`;
+  await execFileP(
+    'modal',
+    ['token', 'set', '--token-id', tokenId, '--token-secret', tokenSecret, `--profile=${profile}`],
+    { timeout: 20_000, env: process.env },
+  );
+  // Activate the profile so subsequent modal commands use it.
+  try {
+    await execFileP('modal', ['profile', 'activate', profile], {
+      timeout: 15_000,
+      env: process.env,
+    });
+  } catch {
+    // Some modal versions don't have `profile activate`; fall back to env.
+  }
+}
+
 /** Create or replace the `huggingface` Modal secret with the given HF token. */
 export async function setHuggingFaceSecret(hfToken: string): Promise<{ ok: boolean; message: string }> {
   try {

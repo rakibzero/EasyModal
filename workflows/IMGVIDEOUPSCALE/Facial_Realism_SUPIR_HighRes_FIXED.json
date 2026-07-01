@@ -1,0 +1,326 @@
+{
+  "last_node_id": 20,
+  "last_link_id": 25,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [40, 100],
+      "size": [315, 314],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0},
+        {"name": "MASK", "type": "MASK", "links": null, "slot_index": 1}
+      ],
+      "properties": {"Node name for S&R": "LoadImage"},
+      "widgets_values": ["4rth.jpg", "image"]
+    },
+    {
+      "id": 2,
+      "type": "CheckpointLoaderSimple",
+      "pos": [40, -150],
+      "size": [315, 98],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [2], "slot_index": 0},
+        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 1},
+        {"name": "VAE", "type": "VAE", "links": [4], "slot_index": 2}
+      ],
+      "properties": {"Node name for S&R": "CheckpointLoaderSimple"},
+      "widgets_values": ["Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"]
+    },
+    {
+      "id": 3,
+      "type": "SUPIRModelLoaderMultiGPU",
+      "pos": [410, -150],
+      "size": [350, 180],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 2},
+        {"name": "clip", "type": "CLIP", "link": 3},
+        {"name": "vae", "type": "VAE", "link": 4}
+      ],
+      "outputs": [
+        {"name": "supir_model", "type": "SUPIRMODEL", "links": [5, 6], "slot_index": 0},
+        {"name": "supir_vae", "type": "SUPIRVAE", "links": [7, 8], "slot_index": 1},
+        {"name": "compute_device", "type": "MULTIGPUDEVICE", "links": [10, 11, 12, 13], "slot_index": 2}
+      ],
+      "properties": {"Node name for S&R": "SUPIRModelLoaderMultiGPU"},
+      "widgets_values": ["SUPIR-v0F_fp16.safetensors", "cuda:0", "auto", false]
+    },
+    {
+      "id": 4,
+      "type": "ImageScale",
+      "pos": [410, 100],
+      "size": [315, 130],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [14], "slot_index": 0}],
+      "properties": {"Node name for S&R": "ImageScale"},
+      "widgets_values": ["lanczos", 768, 768, "disabled"]
+    },
+    {
+      "id": 5,
+      "type": "SUPIRFidelityPrompts",
+      "pos": [800, -150],
+      "size": [350, 150],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "outputs": [
+        {"name": "positive_prompt", "type": "STRING", "links": [16], "slot_index": 0},
+        {"name": "negative_prompt", "type": "STRING", "links": [17], "slot_index": 1}
+      ],
+      "properties": {"Node name for S&R": "SUPIRFidelityPrompts"},
+      "widgets_values": ["facial_detail", "", ""]
+    },
+    {
+      "id": 6,
+      "type": "SUPIRFirstStageMultiGPU",
+      "pos": [800, 50],
+      "size": [300, 170],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": 14},
+        {"name": "compute_device", "type": "MULTIGPUDEVICE", "link": 10},
+        {"name": "supir_vae", "type": "SUPIRVAE", "link": 7}
+      ],
+      "outputs": [
+        {"name": "supir_vae", "type": "SUPIRVAE", "links": [18], "slot_index": 0},
+        {"name": "denoised_image", "type": "IMAGE", "links": [19], "slot_index": 1},
+        {"name": "denoised_latents", "type": "LATENT", "links": [20], "slot_index": 2}
+      ],
+      "properties": {"Node name for S&R": "SUPIRFirstStageMultiGPU"},
+      "widgets_values": ["auto", true, 512, 512]
+    },
+    {
+      "id": 7,
+      "type": "SUPIREncodeMultiGPU",
+      "pos": [1140, 50],
+      "size": [280, 150],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": 19},
+        {"name": "compute_device", "type": "MULTIGPUDEVICE", "link": 11},
+        {"name": "supir_vae", "type": "SUPIRVAE", "link": 18}
+      ],
+      "outputs": [{"name": "latent", "type": "LATENT", "links": [21], "slot_index": 0}],
+      "properties": {"Node name for S&R": "SUPIREncodeMultiGPU"},
+      "widgets_values": ["auto", true, 512]
+    },
+    {
+      "id": 8,
+      "type": "SUPIRConditionerMultiGPU",
+      "pos": [1140, 250],
+      "size": [400, 200],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "supir_model", "type": "SUPIRMODEL", "link": 5},
+        {"name": "latents", "type": "LATENT", "link": 20},
+        {"name": "positive_prompt", "type": "STRING", "link": 16},
+        {"name": "negative_prompt", "type": "STRING", "link": 17}
+      ],
+      "outputs": [
+        {"name": "positive", "type": "SUPIR_cond_pos", "links": [22], "slot_index": 0},
+        {"name": "negative", "type": "SUPIR_cond_neg", "links": [23], "slot_index": 1}
+      ],
+      "properties": {"Node name for S&R": "SUPIRConditionerMultiGPU"},
+      "widgets_values": ["", "", "facial_detail"]
+    },
+    {
+      "id": 9,
+      "type": "SUPIRSamplerMultiGPU",
+      "pos": [1480, 50],
+      "size": [350, 480],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {"name": "supir_model", "type": "SUPIRMODEL", "link": 6},
+        {"name": "latents", "type": "LATENT", "link": 21},
+        {"name": "positive", "type": "SUPIR_cond_pos", "link": 22},
+        {"name": "negative", "type": "SUPIR_cond_neg", "link": 23},
+        {"name": "compute_device", "type": "MULTIGPUDEVICE", "link": 12}
+      ],
+      "outputs": [{"name": "latent", "type": "LATENT", "links": [24], "slot_index": 0}],
+      "properties": {"Node name for S&R": "SUPIRSamplerMultiGPU"},
+      "widgets_values": [0, 15, 4.0, 4.0, 5, 1.003, 1.0, 1.0, 1.0, -1.0, false, "RestoreDPMPP2MSampler", 1024, 512]
+    },
+    {
+      "id": 10,
+      "type": "SUPIRDecodeMultiGPU",
+      "pos": [1870, 50],
+      "size": [280, 150],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {"name": "latents", "type": "LATENT", "link": 24},
+        {"name": "compute_device", "type": "MULTIGPUDEVICE", "link": 13},
+        {"name": "supir_vae", "type": "SUPIRVAE", "link": 8}
+      ],
+      "outputs": [{"name": "image", "type": "IMAGE", "links": [25], "slot_index": 0}],
+      "properties": {"Node name for S&R": "SUPIRDecodeMultiGPU"},
+      "widgets_values": [true, 512, "auto"]
+    },
+    {
+      "id": 11,
+      "type": "SaveImage",
+      "pos": [2200, 50],
+      "size": [300, 270],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 25}],
+      "outputs": [],
+      "properties": {"Node name for S&R": "SaveImage"},
+      "widgets_values": ["Facial_Realism_SUPIR/"]
+    },
+    {
+      "id": 12,
+      "type": "Note",
+      "pos": [40, 470],
+      "size": [360, 200],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ WHY TWO MODELS? ═══\n\n1. CheckpointLoaderSimple:\n   Loads SDXL BASE model\n   → Provides diffusion architecture\n   → Juggernaut-XL recommended\n\n2. SUPIRModelLoaderMultiGPU:\n   Loads SUPIR ENHANCEMENT model\n   → Merges with SDXL above\n   → SUPIR-v0F = Fidelity (sharp)\n   → SUPIR-v0Q = Quality (smooth)\n\nSUPIR needs SDXL to work!"]
+    },
+    {
+      "id": 13,
+      "type": "Note",
+      "pos": [410, 250],
+      "size": [360, 180],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRModelLoaderMultiGPU ═══\n\n▶ supir_model: SUPIR-v0F_fp16\n  v0F = Fidelity (preserve details)\n  v0Q = Quality (smoother output)\n\n▶ compute_device: cuda:0\n  Which GPU to use (cuda:0, cuda:1)\n\n▶ diffusion_dtype: auto\n  auto/bf16/fp16/fp32\n\n▶ fp8_unet: false\n  true = saves 50% VRAM\n  false = better quality"]
+    },
+    {
+      "id": 14,
+      "type": "Note",
+      "pos": [800, 240],
+      "size": [300, 200],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRFirstStageMultiGPU ═══\n\n▶ encoder_dtype: auto\n  auto/bf16/fp32\n\n▶ use_tiled_vae: true\n  true = saves VRAM\n  false = faster but needs more VRAM\n\n▶ encoder_tile_size: 512\n  Smaller = less VRAM\n  256-1024\n\n▶ decoder_tile_size: 512\n  Smaller = less VRAM\n  256-1024"]
+    },
+    {
+      "id": 15,
+      "type": "Note",
+      "pos": [1140, 420],
+      "size": [400, 180],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRConditionerMultiGPU ═══\n\n▶ positive_prompt: (from FidelityPrompts)\n  Custom positive prompt text\n\n▶ negative_prompt: (from FidelityPrompts)\n  Custom negative prompt text\n\n▶ fidelity_preset: facial_detail\n  Options:\n  • none = use custom prompts only\n  • skin_realistic = natural skin\n  • lighting_enhanced = better lighting\n  • facial_detail = face focus\n  • full_fidelity = maximum detail"]
+    },
+    {
+      "id": 16,
+      "type": "Note",
+      "pos": [1480, 560],
+      "size": [350, 400],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRSamplerMultiGPU ═══\n\n▶ seed: 0\n  Random seed (change for variety)\n\n▶ steps: 15\n  15=fast | 30=balanced | 45=best\n\n▶ cfg_scale_start: 4.0\n  Prompt influence at START\n\n▶ cfg_scale_end: 4.0\n  Prompt influence at END\n\n▶ EDM_s_churn: 5\n  Noise injection (0-40)\n  Higher = more creative\n\n▶ s_noise: 1.003\n  Keep near 1.0\n\n▶ control_scale_start: 1.0\n  ⚠️ MUST BE 1.0!\n  0 = BLANK IMAGE!\n\n▶ control_scale_end: 1.0\n  ⚠️ MUST BE 1.0!\n\n▶ sampler: RestoreDPMPP2MSampler\n  TiledRestoreDPMPP2MSampler for high-res"]
+    },
+    {
+      "id": 17,
+      "type": "Note",
+      "pos": [1870, 220],
+      "size": [280, 180],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRDecodeMultiGPU ═══\n\n▶ use_tiled_vae: true\n  true = saves VRAM\n  false = faster\n\n▶ decoder_tile_size: 512\n  Smaller = less VRAM\n  256-1024\n\n▶ decoder_dtype: auto\n  auto/bf16/fp32"]
+    },
+    {
+      "id": 18,
+      "type": "Note",
+      "pos": [800, -30],
+      "size": [350, 70],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ SUPIRFidelityPrompts ═══\n\nPreset: facial_detail = Face enhancement focus"]
+    },
+    {
+      "id": 19,
+      "type": "Note",
+      "pos": [1140, 220],
+      "size": [280, 20],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": [""]
+    },
+    {
+      "id": 20,
+      "type": "Note",
+      "pos": [2200, 340],
+      "size": [300, 200],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": ["═══ OUTPUT ═══\n\nImages saved to:\nFacial_Realism_SUPIR/\n\nIn ComfyUI output folder:\nComfyUI/output/Facial_Realism_SUPIR/"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 4, 0, "IMAGE"],
+    [2, 2, 0, 3, 0, "MODEL"],
+    [3, 2, 1, 3, 1, "CLIP"],
+    [4, 2, 2, 3, 2, "VAE"],
+    [5, 3, 0, 8, 0, "SUPIRMODEL"],
+    [6, 3, 0, 9, 0, "SUPIRMODEL"],
+    [7, 3, 1, 6, 2, "SUPIRVAE"],
+    [8, 3, 1, 10, 2, "SUPIRVAE"],
+    [10, 3, 2, 6, 1, "MULTIGPUDEVICE"],
+    [11, 3, 2, 7, 1, "MULTIGPUDEVICE"],
+    [12, 3, 2, 9, 4, "MULTIGPUDEVICE"],
+    [13, 3, 2, 10, 1, "MULTIGPUDEVICE"],
+    [14, 4, 0, 6, 0, "IMAGE"],
+    [16, 5, 0, 8, 2, "STRING"],
+    [17, 5, 1, 8, 3, "STRING"],
+    [18, 6, 0, 7, 2, "SUPIRVAE"],
+    [19, 6, 1, 7, 0, "IMAGE"],
+    [20, 6, 2, 8, 1, "LATENT"],
+    [21, 7, 0, 9, 1, "LATENT"],
+    [22, 8, 0, 9, 2, "SUPIR_cond_pos"],
+    [23, 8, 1, 9, 3, "SUPIR_cond_neg"],
+    [24, 9, 0, 10, 0, "LATENT"],
+    [25, 10, 0, 11, 0, "IMAGE"]
+  ],
+  "groups": [
+    {"title": "INPUT", "bounding": [20, -180, 360, 600], "color": "#3f789e"},
+    {"title": "SUPIR Multi-GPU Facial Realism Pipeline (WORKING)", "bounding": [400, -180, 1480, 700], "color": "#3e8e3f"},
+    {"title": "OUTPUT", "bounding": [2180, 20, 340, 320], "color": "#8e3e3f"}
+  ],
+  "config": {},
+  "extra": {"ds": {"scale": 0.6, "offset": [0, 200]}},
+  "version": 0.4
+}

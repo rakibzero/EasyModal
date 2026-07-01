@@ -9,6 +9,8 @@ interface Step {
 const STEPS: Step[] = [
   { id: 'setup', label: 'Setup', help: 'Check your computer is ready' },
   { id: 'keys', label: 'Keys', help: 'Add your Modal + HuggingFace tokens' },
+  { id: 'configure', label: 'Configure', help: 'Pick GPU, RAM, CPU + workflow packs' },
+  { id: 'workflows', label: 'Workflows', help: 'Browse bundled workflow files' },
   { id: 'deploy', label: 'Deploy', help: 'Build ComfyUI on Modal' },
   { id: 'launch', label: 'Launch', help: 'Open your ComfyUI URL' },
 ];

@@ -38,11 +38,74 @@ CONFIG = {
 }
 
 COMFY_DIR = "/root/comfy"
-MODEL_DIR = f"{COMFY_DIR}/ComfyUI/models"
+COMFY_ROOT = f"{COMFY_DIR}/ComfyUI"
+MODEL_DIR = f"{COMFY_ROOT}/models"
 CACHE_DIR = "/cache"
 VOL_MODELS = f"{CACHE_DIR}/models"
 
 vol = modal.Volume.from_name("wan-models", create_if_missing=True)
+
+# =============================================================================
+# PERSISTENT DIRECTORIES — these live on the volume so they survive cold starts.
+# Without this, every container recycle would wipe:
+#   - custom_nodes (ComfyUI Manager installs)
+#   - output       (generated images/videos)
+#   - input        (uploaded source images/clips)
+#   - user         (saved workflows, settings, bookmarks)
+# Each maps to a volume subdir; ensure_persistent_dirs() seeds them from the
+# image on first boot, then symlinks the ComfyUI path -> volume path.
+# =============================================================================
+PERSISTENT_DIRS = {
+    "custom_nodes": f"{COMFY_ROOT}/custom_nodes",
+    "output": f"{COMFY_ROOT}/output",
+    "input": f"{COMFY_ROOT}/input",
+    "user": f"{COMFY_ROOT}/user",
+}
+
+
+def _link_to_volume(name, comfy_path, vol_path):
+    """Symlink comfy_path -> vol_path, seeding vol_path from the image on first boot.
+
+    On a fresh volume the vol subdir is empty. The image has baked-in baseline
+    contents for custom_nodes (the git-cloned nodes) and user (default workflows).
+    We copy those into the volume once, so the volume becomes the source of truth
+    and subsequent Manager installs / saved workflows layer on top persistently.
+    """
+    comfy = Path(comfy_path)
+    volp = Path(vol_path)
+    volp.mkdir(parents=True, exist_ok=True)
+
+    # If comfy_path is already a symlink (idempotent re-entry), nothing to do.
+    if comfy.is_symlink():
+        return
+
+    # First boot: seed the volume from whatever the image baked in.
+    if comfy.exists() and comfy.is_dir() and not any(volp.iterdir()):
+        for entry in comfy.iterdir():
+            dest = volp / entry.name
+            if dest.exists():
+                continue
+            try:
+                shutil.copytree(entry, dest, symlinks=True)
+            except (OSError, shutil.Error):
+                pass  # non-fatal — best-effort seed
+
+    # Replace the on-image dir with a symlink to the volume.
+    if comfy.exists() or comfy.is_dir():
+        shutil.rmtree(str(comfy), ignore_errors=True)
+    try:
+        comfy.symlink_to(volp)
+        print(f"  PERSIST: {name}  {comfy_path} -> {vol_path}")
+    except OSError:
+        # Symlink failed (rare) — fall back to using the volume path directly.
+        print(f"  PERSIST WARN: could not symlink {name}, using in-place dir")
+
+
+def ensure_persistent_dirs():
+    """Mount custom_nodes/input/output/user onto the volume so they persist."""
+    for name, comfy_path in PERSISTENT_DIRS.items():
+        vol_path = f"{CACHE_DIR}/{name}"
+        _link_to_volume(name, comfy_path, vol_path)
 
 # =============================================================================
 # MODELS — data-driven. Each entry: (subdir, repo, filepath, required)
@@ -79,6 +142,9 @@ MODELS = [
      "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank128_bf16.safetensors", False),
     ("loras", "Kijai/WanVideo_comfy",
      "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors", False),
+    # Extra models from selected workflow packs (image-edit, upscaling). Empty
+    # when no packs beyond wan22 are selected.
+{{EXTRA_MODELS}}
 ]
 
 MODEL_SUBDIRS = sorted({m[0] for m in MODELS} | {
@@ -162,14 +228,6 @@ def ensure_comfy_models_symlink():
         model_dir.symlink_to(vol_models)
         print(f"  SYMLINK: {MODEL_DIR} -> {VOL_MODELS}")
 
-    output_dir = Path(f"{COMFY_DIR}/ComfyUI/output")
-    vol_output = Path(f"{CACHE_DIR}/output")
-    vol_output.mkdir(parents=True, exist_ok=True)
-    if not output_dir.is_symlink():
-        if output_dir.exists() or output_dir.is_dir():
-            shutil.rmtree(str(output_dir), ignore_errors=True)
-        output_dir.symlink_to(vol_output)
-
 
 # =============================================================================
 # IMAGE
@@ -181,34 +239,14 @@ image = (
     .uv_pip_install("fastapi[standard]==0.115.4", "comfy-cli==1.5.3", "boto3", "huggingface-hub>=0.26.0")
     .run_commands("comfy --skip-prompt install --fast-deps --nvidia --skip-manager")
     .run_commands("pip install sageattention 2>/dev/null || true")
-    .run_commands(f"cd {CN} && git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite && cd ComfyUI-VideoHelperSuite && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/Kijai/ComfyUI-WanVideoWrapper && cd ComfyUI-WanVideoWrapper && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/kijai/ComfyUI-KJNodes && cd ComfyUI-KJNodes && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/pythongosssss/ComfyUI-Custom-Scripts")
-    .run_commands(f"cd {CN} && git clone https://github.com/rgthree/rgthree-comfy && cd rgthree-comfy && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/cubiq/ComfyUI_Essentials && cd ComfyUI_Essentials && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/WASasquatch/was-node-suite-comfyui && cd was-node-suite-comfyui && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/chrisgoringe/cg-use-everywhere")
-    .run_commands(f"cd {CN} && git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation && cd ComfyUI-Frame-Interpolation && pip install -r requirements-no-cupy.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/1038lab/ComfyUI-RMBG && cd ComfyUI-RMBG && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch")
-    .run_commands(f"cd {CN} && git clone https://github.com/fofr/ComfyUI-fofr-toolkit")
-    .run_commands(f"cd {CN} && git clone https://github.com/jags111/efficiency-nodes-comfyui && cd efficiency-nodes-comfyui && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/kk8bit/KayTool && cd KayTool && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/wuwukaka/ComfyUI-WanAnimatePlus && cd ComfyUI-WanAnimatePlus && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/kijai/ComfyUI-WanAnimatePreprocess && cd ComfyUI-WanAnimatePreprocess && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/kijai/ComfyUI-SCAIL-Pose && cd ComfyUI-SCAIL-Pose && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/llikethat/comfyui-scail2")
-    .run_commands(f"cd {CN} && git clone https://github.com/wuwukaka/ComfyUI-SDPose-OOD && cd ComfyUI-SDPose-OOD && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/aining2022/ComfyUI_Swwan && cd ComfyUI_Swwan && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/kijai/ComfyUI-segment-anything-2")
-    .run_commands(f"cd {CN} && git clone https://github.com/city96/ComfyUI-GGUF")
-    .run_commands(f"cd {CN} && git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack && cd ComfyUI-Impact-Pack && pip install -r requirements.txt")
-    .run_commands(f"cd {CN} && git clone https://github.com/ltdrdata/ComfyUI-Manager")
-    .run_commands(f"cd {CN} && git clone https://github.com/civitai/civitai-comfy-nodes && cd civitai-comfy-nodes && pip install -r requirements.txt")
+{{NODE_CLONES}}
     .uv_pip_install("numpy", "transformers>=4.40.0", "ninja", "packaging", "safetensors",
                     "onnxruntime-gpu", "opencv-python-headless", "scipy", "einops", "accelerate",
                     "imageio", "imageio-ffmpeg")
+    # Bundle the shipped workflow JSONs into the image so they appear in ComfyUI's
+    # workflow menu. The placeholder below expands to one .run_commands(...) per
+    # file (mkdir + base64-decode write), or a no-op when no workflows ship.
+{{WORKFLOW_BUNDLE}}
 )
 
 # =============================================================================
@@ -244,6 +282,8 @@ def ui():
     # re-stat/re-downloaded 30+ models while Modal's proxy held the browser request.
     # Only ensure the model-dir symlinks are in place (fast, idempotent).
     ensure_comfy_models_symlink()
+    # Mount custom_nodes/input/output/user onto the volume so they persist.
+    ensure_persistent_dirs()
 
     # Spawn ComfyUI as a background process.
     subprocess.Popen(
@@ -279,3 +319,22 @@ def main():
     print("First run takes 15-30 min. Subsequent runs are instant.")
     download_all_models.remote()
     print("\nDone! Models cached in 'wan-models' volume.")
+
+
+@app.function(volumes={CACHE_DIR: vol}, timeout=300)
+def reset_custom_nodes():
+    """Wipe Manager-installed custom_nodes back to the image baseline.
+
+    Invoked from the UI's "Reset custom nodes" button. Removes every node on
+    the volume's /cache/custom_nodes so the next cold start re-seeds from the
+    image-baked baseline. Saved workflows/outputs/inputs are NOT touched.
+    """
+    cn_vol = Path(f"{CACHE_DIR}/custom_nodes")
+    if not cn_vol.exists():
+        return {"reset": False, "reason": "custom_nodes volume dir not found"}
+    removed = []
+    for entry in cn_vol.iterdir():
+        shutil.rmtree(str(entry), ignore_errors=True)
+        removed.append(entry.name)
+    vol.commit()
+    return {"reset": True, "removed": removed, "count": len(removed)}

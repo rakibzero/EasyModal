@@ -10,11 +10,13 @@ import {
 } from '../repo/instances.js';
 import {
   deployRenderedTemplate,
+  renderTemplate,
   DEFAULT_DEPLOY_CONFIG,
   listApps,
   type DeployConfig,
 } from '../modal/cli.js';
 import { classifyLine } from '../modal/milestones.js';
+import { activateAccountProfile } from '../accounts/modal.js';
 import { bus } from '../events/bus.js';
 import type { InstanceStatus, Milestone } from '@wan22/shared';
 
@@ -64,6 +66,17 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const cfg: DeployConfig = { ...DEFAULT_DEPLOY_CONFIG, ...config };
+
+    // Activate this account's Modal profile so the deploy targets the right account.
+    bus.info(`Activating Modal profile for "${account.label}"…`, { instanceId: undefined });
+    try {
+      await activateAccountProfile(account.id, account.modalTokenId, account.modalTokenSecret);
+    } catch (e) {
+      return reply.code(400).send({
+        ok: false,
+        message: `Could not activate Modal account: ${String((e as Error).message || e).slice(0, 200)}`,
+      });
+    }
     const inst: InstanceRecord = {
       id: randomUUID(),
       accountId,
@@ -163,5 +176,70 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     liveInstances.delete(id);
     const removed = removePersistedInstance(id);
     return { ok: removed };
+  });
+
+  /**
+   * Reset custom_nodes: wipe Manager-installed nodes back to the image baseline.
+   * Renders the instance's template (so the reset_custom_nodes function exists),
+   * then runs a tiny script that looks up the deployed app and invokes it remotely.
+   */
+  app.post('/api/instances/:id/reset-nodes', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const inst = liveInstances.get(id) ?? getPersistedInstance(id);
+    if (!inst) return reply.code(404).send({ ok: false, message: 'Instance not found.' });
+
+    const cfg: DeployConfig = {
+      appName: inst.config.appName,
+      gpu: DEFAULT_DEPLOY_CONFIG.gpu,
+      maxInputs: inst.config.maxInputs,
+      timeoutSeconds: inst.config.timeoutSeconds,
+      memoryMb: inst.config.memoryMb,
+      cpu: inst.config.cpu,
+      packs: (inst.config as { packs?: string[] }).packs ?? ['wan22'],
+    };
+
+    // Write the template + a one-off caller into a temp dir and run modal.
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { spawn } = await import('node:child_process');
+    const workdir = mkdtempSync(join(tmpdir(), 'wan22-reset-'));
+    writeFileSync(join(workdir, 'comfyapp.py'), renderTemplate(cfg), { mode: 0o600 });
+    writeFileSync(
+      join(workdir, 'run_reset.py'),
+      `import modal\n` +
+        `app = modal.App.lookup("${inst.config.appName}", create_if_missing=False)\n` +
+        `if app is None:\n` +
+        `    print("APP_NOT_FOUND")\n` +
+        `else:\n` +
+        `    from comfyapp import reset_custom_nodes\n` +
+        `    print(reset_custom_nodes.remote())\n`,
+      { mode: 0o600 },
+    );
+
+    bus.info(`Resetting custom_nodes for "${inst.config.appName}"…`, { instanceId: inst.id });
+
+    return new Promise((resolve) => {
+      const child = spawn('modal', ['run', 'run_reset.py'], { cwd: workdir, env: process.env });
+      let out = '';
+      child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
+      child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
+      child.on('exit', (code) => {
+        rmSync(workdir, { recursive: true, force: true });
+        if (out.includes('APP_NOT_FOUND')) {
+          bus.info('Reset skipped — app not deployed yet.', { level: 'warn', instanceId: inst.id });
+          resolve(reply.code(404).send({ ok: false, message: 'App not deployed yet — deploy first.' }));
+        } else if (code === 0) {
+          bus.info('custom_nodes reset to baseline. Reinstall what you need in ComfyUI Manager.', {
+            level: 'success',
+            instanceId: inst.id,
+          });
+          resolve({ ok: true, output: out.slice(-500) });
+        } else {
+          bus.info(`Reset failed (exit ${code}).`, { level: 'error', instanceId: inst.id });
+          resolve(reply.code(500).send({ ok: false, message: out.slice(-300) }));
+        }
+      });
+    });
   });
 }
