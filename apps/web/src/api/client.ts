@@ -28,10 +28,38 @@ export interface Prereqs {
   allOk: boolean;
 }
 
+export interface PublicAccount {
+  id: string;
+  label: string;
+  modalTokenId: string;
+  modalTokenSecretMasked: string;
+  hasHuggingFace: boolean;
+  createdAt: string;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  message: string;
+  profile?: string;
+  username?: string;
+}
+
 export const api = {
   health: () => getJson<{ status: string; time: string }>('/api/health'),
   prereqs: () => getJson<Prereqs>('/api/prereqs'),
   ping: () => postJson<{ ok: boolean }>('/api/ping', {}),
+  listAccounts: () => getJson<{ accounts: PublicAccount[] }>('/api/accounts'),
+  validateModal: (modalTokenId: string, modalTokenSecret: string) =>
+    postJson<ValidationResult>('/api/accounts/validate', { modalTokenId, modalTokenSecret }),
+  validateHf: (hfToken: string) => postJson<ValidationResult>('/api/accounts/validate-hf', { hfToken }),
+  saveAccount: (body: {
+    label?: string;
+    modalTokenId: string;
+    modalTokenSecret: string;
+    huggingfaceToken?: string;
+  }) => postJson<{ ok: boolean; account: PublicAccount; huggingface: ValidationResult }>('/api/accounts', body),
+  deleteAccount: (id: string) =>
+    fetch('/api/accounts/' + id, { method: 'DELETE' }).then((r) => r.json()),
 };
 
 /** Subscribe to the SSE event stream. Returns an unsubscribe function. */

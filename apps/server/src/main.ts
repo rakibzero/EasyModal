@@ -3,6 +3,7 @@ import open from 'open';
 import { bus } from './events/bus.js';
 import { healthRoutes } from './routes/health.js';
 import { eventsRoutes } from './routes/events.js';
+import { accountRoutes } from './routes/accounts.js';
 import { findFreePort } from './util/port.js';
 
 const DEFAULT_PORT = Number(process.env.PORT) || 7421;
@@ -43,6 +44,10 @@ async function start(): Promise<void> {
 
   await healthRoutes(app);
   await eventsRoutes(app);
+  await accountRoutes(app);
+
+  // Trivial endpoint so the UI can confirm the server is reachable in one round-trip.
+  app.post('/api/ping', async () => ({ ok: true }));
 
   const port = await findFreePort(DEFAULT_PORT);
   const url = `http://${HOST}:${port}`;
