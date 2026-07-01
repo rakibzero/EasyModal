@@ -10,13 +10,13 @@ Build an open-source local web app that deploys ComfyUI on Modal with zero frict
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Project Foundation & Tooling** - Clean monorepo clonable and runnable with one command
-- [ ] **Phase 2: Backend Skeleton** - Local Fastify+TS server that boots, serves health, opens browser, streams SSE events
-- [ ] **Phase 3: Frontend Shell** - Polished React+Vite+Tailwind app shell with stepper navigation and reusable components
-- [ ] **Phase 4: Encrypted Key Store & Prereqs UI** - Users install prereqs and paste Modal+HF keys safely (Setup → Keys journey)
-- [ ] **Phase 5: Deploy Pipeline & Clean ComfyUI Template** - One deploy button streams live milestones; succeeds or fails loudly with a fix
-- [ ] **Phase 6: Instance Status & Launch** - User lands on their ComfyUI URL and can revisit it anytime; resumable across restarts
-- [ ] **Phase 7: Polish, Docs & Open-Source Release** - A stranger on GitHub can use this in under 5 minutes
+- [x] **Phase 1: Project Foundation & Tooling** - Clean monorepo clonable and runnable with one command
+- [x] **Phase 2: Backend Skeleton** - Local Fastify+TS server that boots, serves health, opens browser, streams SSE events
+- [x] **Phase 3: Frontend Shell** - Polished React+Vite+Tailwind app shell with stepper navigation and reusable components
+- [x] **Phase 4: Encrypted Key Store & Prereqs UI** - Users install prereqs and paste Modal+HF keys safely (Setup → Keys journey)
+- [x] **Phase 5: Deploy Pipeline & Clean ComfyUI Template** - One deploy button streams live milestones; succeeds or fails loudly with a fix
+- [x] **Phase 6: Instance Status & Launch** - User lands on their ComfyUI URL and can revisit it anytime; resumable across restarts
+- [x] **Phase 7: Polish, Docs & Open-Source Release** - A stranger on GitHub can use this in under 5 minutes
 
 ## Phase Details
 
@@ -137,10 +137,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Project Foundation & Tooling | 0/3 | Not started | - |
-| 2. Backend Skeleton | 0/2 | Not started | - |
-| 3. Frontend Shell | 0/2 | Not started | - |
-| 4. Encrypted Key Store & Prereqs UI | 0/3 | Not started | - |
-| 5. Deploy Pipeline & Clean ComfyUI Template | 0/3 | Not started | - |
-| 6. Instance Status & Launch | 0/2 | Not started | - |
-| 7. Polish, Docs & Open-Source Release | 0/3 | Not started | - |
+| 1. Project Foundation & Tooling | 3/3 | Complete | 2026-07-02 |
+| 2. Backend Skeleton | 2/2 | Complete | 2026-07-02 |
+| 3. Frontend Shell | 2/2 | Complete | 2026-07-02 |
+| 4. Local Key Store & Prereqs UI | 3/3 | Complete | 2026-07-02 |
+| 5. Deploy Pipeline & Clean ComfyUI Template | 3/3 | Complete | 2026-07-02 |
+| 6. Instance Status & Launch | 2/2 | Complete | 2026-07-02 |
+| 7. Polish, Docs & Open-Source Release | 3/3 | Complete | 2026-07-02 |
