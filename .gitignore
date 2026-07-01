@@ -29,3 +29,5 @@ output/
 
 # FSDI planning temp
 .planning/tmp/
+.playwright-mcp/
+*.png

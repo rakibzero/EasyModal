@@ -63,24 +63,48 @@ PERSISTENT_DIRS = {
 }
 
 
-def _link_to_volume(name, comfy_path, vol_path):
+def _link_to_volume(name, comfy_path, vol_path, image_baseline=None):
     """Symlink comfy_path -> vol_path, seeding vol_path from the image on first boot.
 
     On a fresh volume the vol subdir is empty. The image has baked-in baseline
     contents for custom_nodes (the git-cloned nodes) and user (default workflows).
     We copy those into the volume once, so the volume becomes the source of truth
     and subsequent Manager installs / saved workflows layer on top persistently.
+
+    Re-seed safety: if the vol dir is empty AND image_baseline is given, we copy
+    the baseline in even when comfy_path is already a symlink (this is the path
+    taken after reset_custom_nodes wipes the volume). Without this, a wiped volume
+    would stay empty forever because the early `is_symlink()` return skips seeding.
     """
     comfy = Path(comfy_path)
     volp = Path(vol_path)
     volp.mkdir(parents=True, exist_ok=True)
 
-    # If comfy_path is already a symlink (idempotent re-entry), nothing to do.
+    vol_is_empty = not any(volp.iterdir())
+
+    # Re-seed path: volume empty + we have a baseline to copy from.
+    # This handles the post-reset case where comfy_path is already a symlink
+    # to the (now empty) volume — we must repopulate before returning.
+    if vol_is_empty and image_baseline is not None:
+        baseline = Path(image_baseline)
+        if baseline.exists() and baseline.is_dir():
+            for entry in baseline.iterdir():
+                dest = volp / entry.name
+                if dest.exists():
+                    continue
+                try:
+                    shutil.copytree(entry, dest, symlinks=True)
+                except (OSError, shutil.Error):
+                    pass  # non-fatal — best-effort seed
+            print(f"  PERSIST: re-seeded {name} from image baseline")
+
+    # If comfy_path is already a symlink, the link is in place — done.
     if comfy.is_symlink():
         return
 
-    # First boot: seed the volume from whatever the image baked in.
-    if comfy.exists() and comfy.is_dir() and not any(volp.iterdir()):
+    # First boot (not yet symlinked): seed the volume from the on-image dir if
+    # we didn't already via the baseline path above.
+    if vol_is_empty and comfy.exists() and comfy.is_dir():
         for entry in comfy.iterdir():
             dest = volp / entry.name
             if dest.exists():
@@ -101,11 +125,19 @@ def _link_to_volume(name, comfy_path, vol_path):
         print(f"  PERSIST WARN: could not symlink {name}, using in-place dir")
 
 
+# Paths to the image-baked baselines, used for re-seeding after a reset.
+# custom_nodes is baked in at build time; the others start empty by design.
+IMAGE_BASELINES = {
+    "custom_nodes": f"{COMFY_ROOT}/custom_nodes",
+}
+
+
 def ensure_persistent_dirs():
     """Mount custom_nodes/input/output/user onto the volume so they persist."""
     for name, comfy_path in PERSISTENT_DIRS.items():
         vol_path = f"{CACHE_DIR}/{name}"
-        _link_to_volume(name, comfy_path, vol_path)
+        baseline = IMAGE_BASELINES.get(name)
+        _link_to_volume(name, comfy_path, vol_path, image_baseline=baseline)
 
 # =============================================================================
 # MODELS — data-driven. Each entry: (subdir, repo, filepath, required)
@@ -338,3 +370,27 @@ def reset_custom_nodes():
         removed.append(entry.name)
     vol.commit()
     return {"reset": True, "removed": removed, "count": len(removed)}
+
+
+@app.function(volumes={CACHE_DIR: vol}, timeout=300)
+def wipe_account_dirs():
+    """Wipe custom_nodes/input/output/user on the volume for an account switch.
+
+    Used when switching Modal accounts so the next account starts clean — no
+    inherited installed nodes, uploads, or generated outputs from the previous
+    account. MODELS are NOT touched (they're large and account-independent).
+    The next cold start re-seeds custom_nodes from the image baseline.
+    """
+    wiped = {}
+    for name in ("custom_nodes", "input", "output", "user"):
+        d = Path(f"{CACHE_DIR}/{name}")
+        if not d.exists():
+            wiped[name] = 0
+            continue
+        count = 0
+        for entry in d.iterdir():
+            shutil.rmtree(str(entry), ignore_errors=True)
+            count += 1
+        wiped[name] = count
+    vol.commit()
+    return {"wiped": wiped}
