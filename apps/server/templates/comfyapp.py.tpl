@@ -125,10 +125,13 @@ def _link_to_volume(name, comfy_path, vol_path, image_baseline=None):
         print(f"  PERSIST WARN: could not symlink {name}, using in-place dir")
 
 
-# Paths to the image-baked baselines, used for re-seeding after a reset.
-# custom_nodes is baked in at build time; the others start empty by design.
+# Paths to the image-baked baselines, used for re-seeding after a reset/wipe.
+# custom_nodes baseline is snapshotted to /opt/baseline-custom_nodes at BUILD
+# time (see the image definition). It MUST be a path that is never symlinked to
+# the volume at runtime — otherwise the "baseline" resolves to the (possibly
+# empty) volume and re-seeding silently fails. The other dirs start empty.
 IMAGE_BASELINES = {
-    "custom_nodes": f"{COMFY_ROOT}/custom_nodes",
+    "custom_nodes": "/opt/baseline-custom_nodes",
 }
 
 
@@ -279,6 +282,15 @@ image = (
     # workflow menu. The placeholder below expands to one .run_commands(...) per
     # file (mkdir + base64-decode write), or a no-op when no workflows ship.
 {{WORKFLOW_BUNDLE}}
+    # Snapshot the image-baked custom_nodes to a stable, NEVER-symlinked location.
+    # This snapshot is the immutable baseline used to re-seed the volume after a
+    # reset or wipe. It MUST live outside ComfyUI's custom_nodes dir (which gets
+    # symlinked to the volume at runtime), otherwise the "baseline" becomes
+    # self-referential and re-seeding silently no-ops. See ensure_persistent_dirs.
+    .run_commands(
+        "rm -rf /opt/baseline-custom_nodes",
+        f"cp -a {COMFY_DIR}/ComfyUI/custom_nodes /opt/baseline-custom_nodes",
+    )
 )
 
 # =============================================================================
