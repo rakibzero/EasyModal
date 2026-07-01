@@ -4,7 +4,7 @@ import {
   CPU_OPTIONS,
   TIMEOUT_OPTIONS_MIN,
   WORKFLOW_PACKS,
-} from '@wan22/shared';
+} from '@easymodal/shared';
 import { useAppStore } from '../store/appStore';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

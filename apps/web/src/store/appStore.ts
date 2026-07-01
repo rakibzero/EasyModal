@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import type { DeployConfig, LogEvent, InstanceStatus } from '@wan22/shared';
+import type { DeployConfig, LogEvent, InstanceStatus } from '@easymodal/shared';
 
 export type StepId = 'setup' | 'keys' | 'configure' | 'workflows' | 'deploy' | 'launch';
 
 /** Default deploy config surfaced in the Configure step. */
 export const DEFAULT_CONFIG: DeployConfig = {
-  appName: 'wan22-animate',
+  appName: 'easymodal',
   gpu: 'A100-80GB',
   maxInputs: 2,
   timeoutSeconds: 1800,
@@ -30,7 +30,7 @@ interface AppState {
 
 const MAX_LOGS = 500;
 
-const LS_KEY = 'wan22-deploy-config';
+const LS_KEY = 'easymodal-config';
 function loadConfig(): DeployConfig {
   try {
     const raw = localStorage.getItem(LS_KEY);

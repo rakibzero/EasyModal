@@ -18,7 +18,7 @@ import {
 import { classifyLine } from '../modal/milestones.js';
 import { activateAccountProfile } from '../accounts/modal.js';
 import { bus } from '../events/bus.js';
-import type { InstanceStatus, Milestone } from '@wan22/shared';
+import type { InstanceStatus, Milestone } from '@easymodal/shared';
 
 interface InstanceRecord extends PersistedInstance {}
 
@@ -208,7 +208,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { spawn } = await import('node:child_process');
-    const workdir = mkdtempSync(join(tmpdir(), 'wan22-reset-'));
+    const workdir = mkdtempSync(join(tmpdir(), 'easymodal-reset-'));
     writeFileSync(join(workdir, 'comfyapp.py'), renderTemplate(cfg), { mode: 0o600 });
     writeFileSync(
       join(workdir, 'run_reset.py'),
@@ -294,7 +294,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { spawn } = await import('node:child_process');
-    const workdir = mkdtempSync(join(tmpdir(), 'wan22-switch-'));
+    const workdir = mkdtempSync(join(tmpdir(), 'easymodal-switch-'));
     writeFileSync(join(workdir, 'comfyapp.py'), renderTemplate(cfg), { mode: 0o600 });
     writeFileSync(
       join(workdir, 'run_wipe.py'),

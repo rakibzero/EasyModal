@@ -1,4 +1,4 @@
-# Requirements: Wan2.2Animate Deploy
+# Requirements: EasyModal
 
 **Defined:** 2026-07-01
 **Core Value:** A non-technical user can go from zero to an open ComfyUI URL by pasting two keys and clicking one button — never touching a terminal or editing `comfyapp.py`.

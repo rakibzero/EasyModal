@@ -1,4 +1,4 @@
-# Contributing to Wan2.2Animate Deploy
+# Contributing to EasyModal
 
 Thanks for your interest in making Modal less miserable! 🎉
 
@@ -6,7 +6,7 @@ Thanks for your interest in making Modal less miserable! 🎉
 
 ```bash
 git clone <repo>
-cd Wan2.2Animate
+cd easymodal
 npm install
 npm run dev
 ```
@@ -41,7 +41,7 @@ dir, and deployed from there. Compute stays on the user's Modal account.
 - **Keep the UX kind.** Every screen: one clear primary action, plain-language status,
   what-to-do-next, visible errors with a fix suggestion. No jargon.
 - **Never commit secrets.** `.gitignore` already excludes `.env` and `.launcher.env`.
-  Keys live in `~/.wan22-deploy/` (0600), not the repo.
+  Keys live in `~/.easymodal/` (0600), not the repo.
 - **The comfyapp.py template is the product's heart.** Changes there affect every user's
   deploy — test the render (`renderTemplate` → `ast.parse`) before committing.
 

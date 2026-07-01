@@ -22,7 +22,7 @@ export interface DeployConfig {
 }
 
 export const DEFAULT_DEPLOY_CONFIG: DeployConfig = {
-  appName: 'wan22-animate',
+  appName: 'easymodal',
   gpu: 'A100-80GB',
   maxInputs: 2, // safe default — single Wan2.2 inference uses 30-50GB VRAM
   timeoutSeconds: 1800,
@@ -125,7 +125,7 @@ export interface DeployCallbacks {
  * stdout/stderr line-by-line. Resolves with the exit code.
  */
 export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): ChildProcess {
-  const workdir = mkdtempSync(join(tmpdir(), 'wan22-deploy-'));
+  const workdir = mkdtempSync(join(tmpdir(), 'easymodal-deploy-'));
   const appFile = join(workdir, 'comfyapp.py');
   writeFileSync(appFile, renderTemplate(cfg), { mode: 0o600 });
 

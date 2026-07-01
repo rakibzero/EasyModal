@@ -3,7 +3,7 @@ import { api, type PublicAccount } from '../api/client';
 import { Banner } from '../components/Banner';
 import { StatusDot } from '../components/StatusDot';
 import { useAppStore } from '../store/appStore';
-import type { InstanceStatus } from '@wan22/shared';
+import type { InstanceStatus } from '@easymodal/shared';
 
 interface InstanceInfo {
   id: string;

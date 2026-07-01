@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { LogEvent } from '@wan22/shared';
+import type { LogEvent } from '@easymodal/shared';
 
 type Subscriber = (event: LogEvent) => void;
 

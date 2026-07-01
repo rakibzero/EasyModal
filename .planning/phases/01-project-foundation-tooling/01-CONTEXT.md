@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-A clean npm-workspaces monorepo anyone can clone and run with one command, with shared types and open-source scaffolding. This is the foundation for the Wan2.2Animate Deploy open-source web app (React+Vite frontend + Fastify backend) that deploys ComfyUI on Modal.
+A clean npm-workspaces monorepo anyone can clone and run with one command, with shared types and open-source scaffolding. This is the foundation for the EasyModal open-source web app (React+Vite frontend + Fastify backend) that deploys ComfyUI on Modal.
 
 </domain>
 
@@ -51,7 +51,7 @@ A clean npm-workspaces monorepo anyone can clone and run with one command, with 
 <code_context>
 ## Existing Code Insights
 
-The repo currently contains the brownfield `comfyapp.py` + docs + workflows. This phase introduces a NEW monorepo structure alongside it (the Wan2.2Animate Deploy launcher app). The monorepo root sits at the project root; `apps/`, `packages/` are new directories. Preserve existing files (`comfyapp.py`, `workflows/`, `docs/`, `README.md`).
+The repo currently contains the brownfield `comfyapp.py` + docs + workflows. This phase introduces a NEW monorepo structure alongside it (the EasyModal launcher app). The monorepo root sits at the project root; `apps/`, `packages/` are new directories. Preserve existing files (`comfyapp.py`, `workflows/`, `docs/`, `README.md`).
 
 **Critical:** There is currently NO `.gitignore`. The existing `.env` holds live Modal + HuggingFace secrets. The `.gitignore` created in this phase MUST exclude `.env` before any broad `git add`.
 

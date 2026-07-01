@@ -1,4 +1,4 @@
-# Roadmap: Wan2.2Animate Deploy
+# Roadmap: EasyModal
 
 ## Overview
 

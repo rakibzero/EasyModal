@@ -1,6 +1,6 @@
 # Configuration
 
-Wan2.2Animate Deploy is configured through the **Configure** step in the web UI. The chosen values
+EasyModal is configured through the **Configure** step in the web UI. The chosen values
 are rendered into `apps/server/templates/comfyapp.py.tpl` at deploy time, so there are no config
 files to hand-edit for a deploy — just pick options in the UI and click Deploy.
 
@@ -8,7 +8,7 @@ This document covers every tunable, where it lives, and how to change the defaul
 
 ## At-a-glance: deploy-time options (the Configure step)
 
-All of these are persisted to `localStorage` under the key `wan22-deploy-config` and sent in the
+All of these are persisted to `localStorage` under the key `easymodal-config` and sent in the
 `POST /api/instances/deploy` body as the `config` field. Defaults live in
 `apps/web/src/store/appStore.ts` (`DEFAULT_CONFIG`) and `apps/server/src/modal/cli.ts`
 (`DEFAULT_DEPLOY_CONFIG`).
@@ -108,7 +108,7 @@ The rendered output is validated with `ast.parse` / `compile()` before deploy.
 
 ## Accounts
 
-Stored in `~/.wan22-deploy/config.json` (0600 plaintext). Each account:
+Stored in `~/.easymodal/config.json` (0600 plaintext). Each account:
 
 ```json
 {
@@ -122,7 +122,7 @@ Stored in `~/.wan22-deploy/config.json` (0600 plaintext). Each account:
 ```
 
 - **One active account at a time** (`activeAccountId` in the same file).
-- The active account's Modal token is written to `~/.modal.toml` under profile `wan22-<accountId>`
+- The active account's Modal token is written to `~/.modal.toml` under profile `easymodal-<accountId>`
   before every deploy/reset/switch (`activateAccountProfile`).
 - HuggingFace tokens are pushed to a Modal secret named `huggingface` (`modal secret put huggingface
   HF_TOKEN=…`) on the active account — idempotent, so switching accounts overwrites it.
@@ -130,14 +130,14 @@ Stored in `~/.wan22-deploy/config.json` (0600 plaintext). Each account:
   `output`/`user` on the volume so the next account starts clean. Models are kept (account-independent,
   large). Use this when handing off between accounts.
 
-Override the config directory with `WAN22_CONFIG_DIR=/some/path`.
+Override the config directory with `EASYMODAL_CONFIG_DIR=/some/path`.
 
 ## Environment variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PORT` | no | `7421` | Backend listen port. The web dev server (5173) proxies `/api` here. |
-| `WAN22_CONFIG_DIR` | no | `~/.wan22-deploy` | Where `config.json` / `instances.json` live. |
+| `EASYMODAL_CONFIG_DIR` | no | `~/.easymodal` | Where `config.json` / `instances.json` live. |
 | `HF_TOKEN` | (set by Modal) | — | Provided to the deployed container via the `huggingface` Modal secret. You don't set this locally. |
 
 > There is **no local `.env`** required to run the app. The `.env` in the repo (gitignored) only
@@ -167,5 +167,5 @@ There is no `.env.development` / `.env.production` split. To run separate enviro
    own Modal workspace, so apps/volumes/secrets are isolated by account.
 2. **Different app names** — change the app name in Configure to avoid clashing with a production
    deploy (Modal app names are unique per workspace).
-3. **Different config dir** — `WAN22_CONFIG_DIR=/tmp/wan22-staging npm start` to keep a separate
+3. **Different config dir** — `EASYMODAL_CONFIG_DIR=/tmp/wan22-staging npm start` to keep a separate
    set of accounts/instances.

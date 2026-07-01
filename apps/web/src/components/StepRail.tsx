@@ -24,7 +24,7 @@ export function StepRail({ current, onSelect }: StepRailProps) {
   return (
     <nav className="flex w-60 flex-col gap-1 border-r border-slate-800 p-4">
       <div className="mb-6 px-2">
-        <h1 className="text-lg font-bold text-white">Wan2.2Animate</h1>
+        <h1 className="text-lg font-bold text-white">EasyModal</h1>
         <p className="text-xs text-slate-400">Deploy ComfyUI on Modal</p>
       </div>
       {STEPS.map((step, i) => {

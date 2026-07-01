@@ -1,5 +1,5 @@
 """
-Wan2.2Animate Deploy — clean bundled ComfyUI-on-Modal template.
+EasyModal — clean bundled ComfyUI-on-Modal template.
 
 Refactored from the original comfyapp.py to fix the reliability issues called out
 in .planning/codebase/CONCERNS.md:

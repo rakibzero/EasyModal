@@ -1,16 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Account } from '@wan22/shared';
+import type { Account } from '@easymodal/shared';
 
 /**
  * Local plaintext config store — matches how `modal`, `aws`, `gh`, and `git`
  * CLI tools store credentials: a user-readable file protected by filesystem
  * permissions (0600). No encryption layer, no native deps, no passphrase.
  *
- * Location: ~/.wan22-deploy/config.json
+ * Location: ~/.easymodal/config.json
  */
-const CONFIG_DIR = process.env.WAN22_CONFIG_DIR || join(homedir(), '.wan22-deploy');
+const CONFIG_DIR = process.env.EASYMODAL_CONFIG_DIR || join(homedir(), '.easymodal');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export interface StoredAccount extends Account {

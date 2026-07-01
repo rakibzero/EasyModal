@@ -1,12 +1,12 @@
 # Development
 
-How to run, build, and extend the Wan2.2Animate Deploy app locally.
+How to run, build, and extend the EasyModal app locally.
 
 ## Local setup
 
 ```bash
-git clone <repo-url> wan22-animate
-cd wan22-animate
+git clone <repo-url> easymodal
+cd easymodal
 npm install      # npm workspaces — installs all three workspaces
 npm run dev      # web (Vite :5173) + server (Fastify :7421) concurrently
 ```

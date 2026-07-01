@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Wan2.2Animate Deploy is a **local orchestrator + web UI** that deploys [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+EasyModal is a **local orchestrator + web UI** that deploys [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 on [Modal](https://modal.com) serverless GPUs. The user interacts only with a browser-based UI
 served from their own machine; compute runs on their own Modal account.
 
@@ -26,7 +26,7 @@ graph TD
         U["User<br/>(browser)"]
         W["apps/web<br/>React + Vite"]
         S["apps/server<br/>Fastify + SSE"]
-        CS["~/.wan22-deploy/<br/>config.json, instances.json<br/>(0600 plaintext key store)"]
+        CS["~/.easymodal/<br/>config.json, instances.json<br/>(0600 plaintext key store)"]
     end
 
     subgraph "Render + deploy"
@@ -71,7 +71,7 @@ graph TD
   - `KeysPage` — add/remove Modal accounts (each = label + Modal token id/secret + optional HF token),
     shows masked tokens + HF status. Calls `/api/accounts`.
   - `ConfigurePage` — hardware dropdowns (GPU/RAM/vCPU/concurrency/timeout/app name) + workflow-pack
-    toggles. Persisted to `localStorage` (`wan22-deploy-config`).
+    toggles. Persisted to `localStorage` (`easymodal-config`).
   - `WorkflowsPage` — browses the bundled workflow catalog (`/api/workflows`), grouped by pack,
     with download buttons.
   - `DeployPage` — account picker + config summary + deploy button. Streams milestones via SSE.
@@ -125,10 +125,10 @@ graph TD
 
 Thin wrappers over the `modal` CLI via `execFile`:
 
-- `validateModalToken(id, secret)` — `modal token set` into a throwaway `wan22-validate` profile,
+- `validateModalToken(id, secret)` — `modal token set` into a throwaway `easymodal-validate` profile,
   then `modal profile current` to confirm.
 - `persistModalToken(id, secret)` — writes the token under the real profile.
-- `activateAccountProfile(accountId, id, secret)` — writes the token under `wan22-<accountId>` and
+- `activateAccountProfile(accountId, id, secret)` — writes the token under `easymodal-<accountId>` and
   marks it active. Called before every deploy / reset / switch so the right account is targeted.
 - `setHuggingFaceSecret(token)` — `modal secret put huggingface HF_TOKEN=…` (idempotent).
 
@@ -138,10 +138,10 @@ Thin wrappers over the `modal` CLI via `execFile`:
 
 #### Persistence layer (`src/repo/`)
 
-- `configStore.ts` — `~/.wan22-deploy/config.json` (0600). Stores accounts (with HF tokens) and
+- `configStore.ts` — `~/.easymodal/config.json` (0600). Stores accounts (with HF tokens) and
   the `activeAccountId`. Plaintext by design — matches `modal`/`aws`/`git` CLI conventions.
-  Override location with `WAN22_CONFIG_DIR`.
-- `instances.ts` — `~/.wan22-deploy/instances.json` (0600). Stores deployed-instance records
+  Override location with `EASYMODAL_CONFIG_DIR`.
+- `instances.ts` — `~/.easymodal/instances.json` (0600). Stores deployed-instance records
   (id, accountId, appName, config, status, url, timestamps, lastError).
 
 ### packages/shared
@@ -241,7 +241,7 @@ until it returns HTTP 200 before returning — so Modal never marks the containe
 
 ## Security model
 
-- Keys stored in `~/.wan22-deploy/` (0600 plaintext), never in the repo. `.gitignore` excludes `.env`.
+- Keys stored in `~/.easymodal/` (0600 plaintext), never in the repo. `.gitignore` excludes `.env`.
 - No encryption layer — by design, matching `modal`/`aws`/`git` CLI conventions. The threat model
   is "single-user local tool," not multi-tenant.
 - Tokens are sent to Modal's API via the `modal` CLI over HTTPS; nothing leaves the machine except

@@ -1,13 +1,13 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { InstanceStatus } from '@wan22/shared';
+import type { InstanceStatus } from '@easymodal/shared';
 
 /**
  * Persisted instance registry — survives app restarts (resumable).
- * Lives alongside the account config in the user's ~/.wan22-deploy/ dir.
+ * Lives alongside the account config in the user's ~/.easymodal/ dir.
  */
-const DATA_DIR = process.env.WAN22_CONFIG_DIR || join(homedir(), '.wan22-deploy');
+const DATA_DIR = process.env.EASYMODAL_CONFIG_DIR || join(homedir(), '.easymodal');
 const INSTANCES_FILE = join(DATA_DIR, 'instances.json');
 
 export interface PersistedInstance {

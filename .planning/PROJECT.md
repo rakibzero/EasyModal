@@ -1,4 +1,4 @@
-# Wan2.2Animate Deploy
+# EasyModal
 
 ## What This Is
 

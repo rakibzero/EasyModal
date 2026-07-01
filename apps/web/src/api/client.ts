@@ -1,4 +1,4 @@
-import type { LogEvent } from '@wan22/shared';
+import type { LogEvent } from '@easymodal/shared';
 
 // In dev, Vite proxies /api to the backend. In production the server serves
 // the built bundle, so relative /api paths resolve to the same origin.

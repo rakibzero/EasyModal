@@ -3,8 +3,8 @@ import { api, type PublicAccount } from '../api/client';
 import { Banner } from '../components/Banner';
 import { LogStream } from '../components/LogStream';
 import { useAppStore } from '../store/appStore';
-import { WORKFLOW_PACKS } from '@wan22/shared';
-import type { InstanceStatus, Milestone } from '@wan22/shared';
+import { WORKFLOW_PACKS } from '@easymodal/shared';
+import type { InstanceStatus, Milestone } from '@easymodal/shared';
 
 const CHECKLIST: { id: Milestone; label: string }[] = [
   { id: 'image-building', label: 'Building container image' },

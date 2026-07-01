@@ -1,5 +1,5 @@
 /**
- * Wan2.2Animate Deploy — shared types
+ * EasyModal — shared types
  *
  * Multi-account/multi-instance-ready schema (v1 UI is single-account, but the
  * data model supports N accounts + N instances so v2 is additive, not a rewrite).

@@ -1,4 +1,4 @@
-# Wan2.2Animate Deploy — Production Plan
+# EasyModal — Production Plan
 
 **An open-source web app to deploy ComfyUI on Modal with zero pain.**
 **Created:** 2026-07-01 · **Status:** Executing (autonomous)

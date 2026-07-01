@@ -19,7 +19,7 @@ export interface ModalValidation {
 export async function validateModalToken(
   tokenId: string,
   tokenSecret: string,
-  profile = 'wan22-validate',
+  profile = 'easymodal-validate',
 ): Promise<ModalValidation> {
   try {
     await execFileP(
@@ -53,7 +53,7 @@ export async function validateModalToken(
 export async function persistModalToken(
   tokenId: string,
   tokenSecret: string,
-  profile = 'wan22',
+  profile = 'easymodal',
 ): Promise<void> {
   await execFileP(
     'modal',
@@ -75,7 +75,7 @@ export async function activateAccountProfile(
   tokenId: string,
   tokenSecret: string,
 ): Promise<void> {
-  const profile = `wan22-${accountId}`;
+  const profile = `easymodal-${accountId}`;
   await execFileP(
     'modal',
     ['token', 'set', '--token-id', tokenId, '--token-secret', tokenSecret, `--profile=${profile}`],

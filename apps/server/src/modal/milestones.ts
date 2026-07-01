@@ -1,4 +1,4 @@
-import type { Milestone } from '@wan22/shared';
+import type { Milestone } from '@easymodal/shared';
 
 /**
  * Map a raw `modal deploy` log line to a human-readable milestone.

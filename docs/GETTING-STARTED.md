@@ -16,8 +16,8 @@ This guide walks through the six-step flow: **Setup → Keys → Configure → W
 ## 1. Start the app
 
 ```bash
-git clone <repo-url> wan22-animate
-cd wan22-animate
+git clone <repo-url> easymodal
+cd easymodal
 npm install
 npm start
 ```
@@ -25,7 +25,7 @@ npm start
 Your browser opens at **http://localhost:5173**. (In dev: `npm run dev` — web on 5173, server on 7421.)
 
 > The app runs entirely on your machine. It stores your tokens locally
-> (`~/.wan22-deploy/`, 0600) and never sends them anywhere except Modal/HuggingFace over HTTPS.
+> (`~/.easymodal/`, 0600) and never sends them anywhere except Modal/HuggingFace over HTTPS.
 
 ## 2. Setup
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { LogEvent } from '@wan22/shared';
+import type { LogEvent } from '@easymodal/shared';
 import { bus } from '../events/bus.js';
 
 const HEARTBEAT_MS = 15_000;

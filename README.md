@@ -1,4 +1,4 @@
-# Wan2.2Animate Deploy
+# EasyModal
 
 > **Modal is powerful but miserable to set up. This is the missing UI.**
 
@@ -33,7 +33,7 @@ compute itself. Installed custom nodes, uploaded inputs, generated outputs, and 
 
 ```bash
 git clone <repo>
-cd Wan2.2Animate
+cd easymodal
 npm install
 npm start
 ```

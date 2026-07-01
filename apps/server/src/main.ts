@@ -62,7 +62,7 @@ async function start(): Promise<void> {
 
   try {
     await app.listen({ port, host: HOST });
-    bus.info(`Wan2.2Animate Deploy server listening on ${url}`);
+    bus.info(`EasyModal server listening on ${url}`);
     app.log.info(`listening on ${url}`);
 
     if (shouldOpenBrowser) {

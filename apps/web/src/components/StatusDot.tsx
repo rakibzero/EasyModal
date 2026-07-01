@@ -1,4 +1,4 @@
-import type { InstanceStatus } from '@wan22/shared';
+import type { InstanceStatus } from '@easymodal/shared';
 
 interface StatusDotProps {
   status?: InstanceStatus | null;
