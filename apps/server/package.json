@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/static": "^9.1.3",
     "@wan22/shared": "*",
     "fastify": "^5.2.0",
     "open": "^10.1.0"

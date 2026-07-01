@@ -24,13 +24,20 @@ full build plan (7 phases).
 Compute stays on **your** Modal account (A100-80GB). This app is a local orchestrator + UI;
 it never hosts compute itself.
 
-## Quickstart (coming soon)
+## Quickstart
 
 ```bash
-npx wan22-deploy
+git clone <repo>
+cd Wan2.2Animate
+npm install
+npm start
 ```
 
-> Requires Node 18+ and the `modal` CLI installed (`pip install modal`).
+Your browser opens automatically. Click through **Setup → Keys → Deploy → Launch**:
+paste your Modal + HuggingFace tokens, click **Deploy ComfyUI to Modal**, then
+**Open ComfyUI** 🚀.
+
+> Requires Node 18+ and the `modal` CLI installed (`pip install modal && modal setup`).
 
 ## Development
 
