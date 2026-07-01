@@ -1,0 +1,30 @@
+- generic [ref=e4]:
+  - img "modal logo" [ref=e6]
+  - heading "Log in to Modal" [level=2] [ref=e7]
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Email address
+        - textbox "Email address" [ref=e12]:
+          - /placeholder: Enter email address
+      - button "Continue" [disabled] [ref=e14]:
+        - generic [ref=e15]: Continue
+    - generic [ref=e17]:
+      - generic [ref=e18]: Or
+      - generic [ref=e19]:
+        - link "Continue with GitHub" [ref=e20] [cursor=pointer]:
+          - /url: /api/login?next=%2Fapps%2Fmyai%2Fmain%2Fdeployed%2Fwan22-animate-scail2&idp_type=IDENTITY_PROVIDER_TYPE_GITHUB
+          - img [ref=e22]
+          - generic [ref=e26]: Continue with GitHub
+        - link "Google Continue with Google" [ref=e27] [cursor=pointer]:
+          - /url: /api/login?next=%2Fapps%2Fmyai%2Fmain%2Fdeployed%2Fwan22-animate-scail2&idp_type=IDENTITY_PROVIDER_TYPE_GOOGLE_OAUTH
+          - img "Google" [ref=e28]
+          - generic [ref=e29]: Continue with Google
+        - link "Continue with SSO" [ref=e30] [cursor=pointer]:
+          - /url: /login/sso?next=%2Fapps%2Fmyai%2Fmain%2Fdeployed%2Fwan22-animate-scail2
+          - generic [ref=e31]: Continue with SSO
+  - separator [ref=e33]
+  - generic [ref=e35]:
+    - text: Don't have an account yet?
+    - link "Sign up" [ref=e36] [cursor=pointer]:
+      - /url: /signup?next=%2Fapps%2Fmyai%2Fmain%2Fdeployed%2Fwan22-animate-scail2

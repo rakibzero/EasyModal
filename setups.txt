@@ -1,0 +1,28 @@
+setup 1:
+CPU 4 cores = 8 vCPU
+RAM 32 GiB
+GPU L4
+
+L4  x1
+Image gen
+video upscale
+---------------------------
+
+setup 2  :   
+CPU  4 cores = 8 vCPU
+RAM 32 GiB
+GPU L40S     (48gb ) 
+480p vieo gen
+
+----------------------------
+setup 3 :       
+CPU 4 cores = 8 vCPU
+RAM 64 GiB   
+GPU A100-80GB
+A100
+
+
+Ai training and animate high quality 
+---------------------------------------------
+
+
