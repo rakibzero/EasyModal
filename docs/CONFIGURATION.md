@@ -1,282 +1,171 @@
-<!-- generated-by: gsd-doc-writer -->
 # Configuration
 
-This document describes all configurable aspects of the Wan2.2Animate Modal + ComfyUI deployment. Configuration is managed entirely through the `comfyapp.py` source file and Modal's platform settings — there are no separate YAML/JSON/TOML config files.
+Wan2.2Animate Deploy is configured through the **Configure** step in the web UI. The chosen values
+are rendered into `apps/server/templates/comfyapp.py.tpl` at deploy time, so there are no config
+files to hand-edit for a deploy — just pick options in the UI and click Deploy.
 
-## Environment Variables
+This document covers every tunable, where it lives, and how to change the defaults.
+
+## At-a-glance: deploy-time options (the Configure step)
+
+All of these are persisted to `localStorage` under the key `wan22-deploy-config` and sent in the
+`POST /api/instances/deploy` body as the `config` field. Defaults live in
+`apps/web/src/store/appStore.ts` (`DEFAULT_CONFIG`) and `apps/server/src/modal/cli.ts`
+(`DEFAULT_DEPLOY_CONFIG`).
+
+| Option | Default | Choices | Notes |
+|--------|---------|---------|-------|
+| **App name** | `wan22-animate` | any slug | Becomes the Modal app name + part of the URL. |
+| **GPU** | `A100-80GB` | A100-80GB, A100-40GB, H100, H200, L40S, L4, T4 | VRAM guardrail warns when a non-heavy-workload GPU is picked (Wan2.2 needs ≥40 GB). |
+| **RAM** | 32 GB | 8, 16, 32, 64, 128, 256 GB | |
+| **vCPU** | 8 | 2, 4, 8, 16, 32 | |
+| **Max concurrent inputs** | 2 | 1, 2, 3, 4 | Each Wan2.2 inference uses 30–50 GB VRAM; >1 risks OOM on a single GPU. |
+| **Idle timeout** | 30 min | 15, 30, 60, 120, 240 min | How long the container stays warm before scaling to zero. |
+| **Workflow packs** | `wan22` | `wan22` (locked on), `image-edit`, `upscaling` | Add custom nodes + models per pack. |
+
+### GPU options reference
+
+Defined in `packages/shared/src/types.ts` (`GPU_OPTIONS`). Each entry has `vramGb` and a
+`heavyWorkloads` flag — the Configure page shows a warning when you pick a GPU with
+`heavyWorkloads: false` (T4, L4, L40S), since Wan2.2 14B generally needs ≥40 GB VRAM.
+
+| GPU | VRAM | heavyWorkloads |
+|-----|------|----------------|
+| A100-80GB | 80 GB | ✅ |
+| A100-40GB | 40 GB | ✅ |
+| H100 | 80 GB | ✅ |
+| H200 | 141 GB | ✅ |
+| L40S | 48 GB | ⚠️ borderline |
+| L4 | 24 GB | ❌ |
+| T4 | 16 GB | ❌ |
+
+## Workflow packs
+
+Defined in `apps/server/src/modal/packs.ts`.
+
+### Core nodes (always installed)
+
+`CORE_NODES` — 25 custom nodes installed on every deploy regardless of pack selection:
+
+VideoHelperSuite, WanVideoWrapper, KJNodes, Custom-Scripts, rgthree-comfy, ComfyUI_Essentials,
+was-node-suite-comfyui, cg-use-everywhere, Frame-Interpolation, RMBG, Inpaint-CropAndStitch,
+fofr-toolkit, efficiency-nodes-comfyui, KayTool, WanAnimatePlus, WanAnimatePreprocess, SCAIL-Pose,
+comfyui-scail2, SDPose-OOD, Swwan, segment-anything-2, GGUF, Impact-Pack, **Manager**, civitai-comfy-nodes.
+
+### Packs
+
+| Pack | Adds nodes | Adds models |
+|------|-----------|-------------|
+| `wan22` (always on) | — (core nodes cover it) | — (core models are in the template) |
+| `image-edit` | FluxTrainer, GGUF, QwenImage, comfyui-ernie, FLUX.1-Tools, mixlab-nodes, adetailer | Flux dev fp8, Qwen-Image-Edit GGUF, Ernie |
+| `upscaling` | SUPIR, seedVR, SUPIR-Wrapper | SUPIR-v0Q, SUPIR-v0F, SeedVR2 |
+
+> **Caveat:** the pack model repos/paths are best-effort. They're all `required: false`, so a
+> 404 warns but doesn't abort the deploy. If a pack's model fails, the workflow that needs it will
+> show a missing-model error in ComfyUI. Verify repo paths when you first use a pack and PR fixes.
+
+`resolveNodes(packs)` dedupes by URL; `resolveModels(packs)` concatenates. Both feed the template's
+`{{NODE_CLONES}}` and `{{EXTRA_MODELS}}` placeholders.
+
+## Bundled workflows
+
+Workflow JSONs live in `apps/server/workflows/`, one folder per pack:
+
+```
+apps/server/workflows/
+├── wan22/          10 files (Wan2.2 / SCAIL-2 / WanAnimate workflows)
+├── image-edit/     13 files (Flux / Qwen / Ernie workflows)
+└── upscaling/       5 files (SUPIR / SeedVR workflows)
+```
+
+On deploy, `collectWorkflows(packs)` reads each selected pack's folder and `renderWorkflowBundle()`
+base64-inlines every JSON into the image so it appears in ComfyUI's workflow menu. Adding a workflow
+= drop a JSON into the right folder + redeploy. The catalog is also browsable in the **Workflows**
+step (`GET /api/workflows`) with per-file download.
+
+## Template placeholders
+
+`apps/server/templates/comfyapp.py.tpl` is rendered by `renderTemplate(cfg)` in `cli.ts`. Placeholders:
+
+| Placeholder | Replaced with | Rendered by |
+|-------------|---------------|-------------|
+| `{{APP_NAME}}` | app name string | direct `.replaceAll` |
+| `{{GPU}}` | GPU type string | direct |
+| `{{MAX_INPUTS}}` | int | direct |
+| `{{TIMEOUT_SECONDS}}` | int | direct |
+| `{{MEMORY_MB}}` | int | direct |
+| `{{CPU}}` | int | direct |
+| `{{NODE_CLONES}}` | one `.run_commands(...)` per node | `renderNodeClones(resolveNodes(packs))` |
+| `{{EXTRA_MODELS}}` | Python tuples appended to `MODELS` | `renderExtraModels(resolveModels(packs))` |
+| `{{WORKFLOW_BUNDLE}}` | one `.run_commands(...)` per workflow JSON (base64) | `renderWorkflowBundle(collectWorkflows(packs))` |
+
+> **Gotcha (learned the hard way):** placeholders that expand to multi-line code must sit at
+> column 0 in the template (not indented), and must never appear inside a `#` comment line —
+> otherwise the expansion lands at the wrong indent or inside a comment, breaking the
+> parenthesized `image = (...)` chain.
+
+The rendered output is validated with `ast.parse` / `compile()` before deploy.
+
+## Accounts
+
+Stored in `~/.wan22-deploy/config.json` (0600 plaintext). Each account:
+
+```json
+{
+  "id": "uuid",
+  "label": "personal",
+  "modalTokenId": "ak-…",
+  "modalTokenSecret": "as-…",
+  "huggingfaceToken": "hf_… (optional)",
+  "createdAt": "ISO-8601"
+}
+```
+
+- **One active account at a time** (`activeAccountId` in the same file).
+- The active account's Modal token is written to `~/.modal.toml` under profile `wan22-<accountId>`
+  before every deploy/reset/switch (`activateAccountProfile`).
+- HuggingFace tokens are pushed to a Modal secret named `huggingface` (`modal secret put huggingface
+  HF_TOKEN=…`) on the active account — idempotent, so switching accounts overwrites it.
+- **Account switch** (`POST /api/instances/:id/switch-account`) wipes `custom_nodes`/`input`/
+  `output`/`user` on the volume so the next account starts clean. Models are kept (account-independent,
+  large). Use this when handing off between accounts.
+
+Override the config directory with `WAN22_CONFIG_DIR=/some/path`.
+
+## Environment variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `HF_TOKEN` | **Required** | — | HuggingFace read token used to authenticate model downloads from the Hub. Must be set in a Modal secret named `huggingface`. Without this, model downloads will fail silently (the `_link()` helper catches exceptions from `hf_hub_download`). |
+| `PORT` | no | `7421` | Backend listen port. The web dev server (5173) proxies `/api` here. |
+| `WAN22_CONFIG_DIR` | no | `~/.wan22-deploy` | Where `config.json` / `instances.json` live. |
+| `HF_TOKEN` | (set by Modal) | — | Provided to the deployed container via the `huggingface` Modal secret. You don't set this locally. |
 
-### How to set the HuggingFace token
+> There is **no local `.env`** required to run the app. The `.env` in the repo (gitignored) only
+> holds the maintainer's own tokens for manual `modal` testing — it is not loaded by the app.
 
-Create a Modal secret and deploy:
+## Deployed-container defaults (in the template)
 
-```bash
-modal secret create huggingface HF_TOKEN=hf_your_token_here
-```
-
-The secret is referenced in both functions via `modal.Secret.from_name("huggingface")` (`comfyapp.py:386` and `comfyapp.py:402`). The token is read inside `download_models()` as `os.environ.get("HF_TOKEN")` and forwarded to the HuggingFace Hub client as `HUGGINGFACE_HUB_TOKEN`.
-
-## Modal App Configuration
+These are the values inside `comfyapp.py.tpl` itself (not user-tunable from the UI):
 
 | Setting | Value | Location |
 |---------|-------|----------|
-| **App name** | `wan22-animate-scail2` | `comfyapp.py:377` `modal.App("wan22-animate-scail2", image=image)` |
-| **Image base** | `debian_slim` (Python 3.11) | `comfyapp.py:172` |
-| **Package manager** | `uv` (via `uv_pip_install`) | `comfyapp.py:181-186, 356-370` |
-
-The app name determines the Modal dashboard label and the auto-generated deployment subdomain. Change it by editing the `modal.App(...)` constructor.
-
-## Image Build Configuration
-
-The container image is built in ordered layers. Each layer is configurable in `comfyapp.py`:
-
-### System packages (line 174-179)
-
-```python
-.apt_install("git", "wget", "ffmpeg", "libgl1", "libglib2.0-0",
-             "libsm6", "libxext6", "libxrender-dev", "libfontconfig")
-```
-
-Edit the `.apt_install(...)` call to add or remove system dependencies.
-
-### Core Python packages (line 181-186)
-
-```python
-.uv_pip_install(
-    "fastapi[standard]==0.115.4",
-    "comfy-cli==1.5.3",
-    "boto3",
-    "huggingface-hub>=0.26.0",
-)
-```
-
-Pin or bump versions here. `comfy-cli` is used to install ComfyUI.
-
-### ComfyUI installation (line 188-190)
-
-```python
-.run_commands("comfy --skip-prompt install --fast-deps --nvidia --skip-manager")
-```
-
-The `--fast-deps` flag skips optional dependency checks. `--nvidia` installs CUDA-compatible torch. `--skip-manager` defers ComfyUI-Manager to custom nodes (it is cloned separately at line 344-347). This installs the nightly (latest master) build.
-
-### SageAttention (line 192)
-
-```python
-.run_commands("pip install sageattention 2>/dev/null || true")
-```
-
-SageAttention is installed optionally — the `|| true` causes the build to succeed even if pip fails.
-
-### Custom nodes (lines 195-354)
-
-Each custom node is a `.run_commands(...)` block containing `git clone` and optional `pip install -r requirements.txt`. To add a new node, add a new `.run_commands(...)` call. To remove one, delete the corresponding block. See [ARCHITECTURE.md](ARCHITECTURE.md#custom-nodes) for the full list.
-
-### Additional Python dependencies (line 356-370)
-
-```python
-.uv_pip_install(
-    "numpy", "transformers>=4.40.0", "flash-attn", "ninja",
-    "packaging", "safetensors", "onnxruntime-gpu",
-    "opencv-python-headless", "scipy", "einops", "accelerate",
-    "imageio", "imageio-ffmpeg",
-)
-```
-
-Edit this list to add or remove runtime Python packages.
-
-## GPU Configuration
-
-| Function | GPU | Configuration Code | Location |
-|----------|-----|--------------------|----------|
-| `download_all_models` | No GPU specified (CPU-only) | *(no `gpu` parameter)* | `comfyapp.py:384-389` |
-| `ui` (ComfyUI server) | `A100-80GB` | `gpu="A100-80GB"` | `comfyapp.py:398` |
-
-> **Note:** The `download_all_models` function does not set a `gpu` parameter, so it runs on Modal's default CPU worker. The assignment L40S may be offered in the user's Modal tier but is not hard-coded.
-<!-- VERIFY: L40S (48GB VRAM) GPU availability depends on the Modal account tier and region. It is not hard-coded in comfyapp.py and may differ per deployment. -->
-
-To change the GPU for the web UI, edit the `gpu` parameter in the `@app.function(gpu="A100-80GB", ...)` decorator at line 398. Modal supports GPU types such as `"A100-80GB"`, `"A100"`, `"L40S"`, `"L4"`, and `"T4"`.
-
-## Hardware Resources
-
-| Function | Memory | vCPUs | Location |
-|----------|--------|-------|----------|
-| `download_all_models` | Modal default (not explicitly set) | Modal default (not explicitly set) | `comfyapp.py:384-389` |
-| `ui` | 32768 MB (32 GB) | 8.0 | `comfyapp.py:399-400` |
-
-Change these by editing the `memory=` and `cpu=` parameters in the respective `@app.function(...)` decorators. Modal accepts memory values in MB and CPU values as fractional numbers (e.g., `cpu=4.0`).
-
-## Timeout Configuration
-
-| Setting | Value | Location |
-|---------|-------|----------|
-| `download_all_models` function timeout | 3600 seconds (60 minutes) | `comfyapp.py:387` `timeout=3600` |
-| `ui` function timeout | 1800 seconds (30 minutes) | `comfyapp.py:403` `timeout=1800` |
-| `@modal.web_server` startup timeout | 600 seconds (10 minutes) | `comfyapp.py:406` `startup_timeout=600` |
-
-The function timeout is the maximum wall-clock time a single invocation can run before Modal terminates it. The startup timeout is how long Modal waits for the web server to bind to port 8188 before considering the deployment failed.
-
-## Concurrency and Scaling
-
-| Setting | Value | Location |
-|---------|-------|----------|
-| Max concurrent inputs | 5 | `comfyapp.py:405` `@modal.concurrent(max_inputs=5)` |
-| Container idle timeout | 300 seconds (5 minutes) | Modal platform default (not set in code) |
-
-<!-- VERIFY: The 300-second container idle timeout is Modal's platform default. It is not configured in comfyapp.py and may be overridden in the Modal dashboard or via `modal.config`. -->
-
-`@modal.concurrent(max_inputs=5)` allows up to 5 ComfyUI inference requests to run simultaneously on the same GPU. Modal queues additional requests. To adjust, change the `max_inputs` value — but note GPU memory constraints. A single Wan2.2 inference can use 30–50 GB of VRAM, so values above 1 may cause OOM errors on a single A100-80GB.
-
-## Storage Configuration
-
-| Resource | Name | Mount Point | Purpose | Location |
-|----------|------|-------------|---------|----------|
-| Modal Volume | `wan-models` | `/cache` | Persists the HuggingFace Hub cache across deployments | `comfyapp.py:28` |
-| Modal Secret | `huggingface` | *(env var)* | Provides `HF_TOKEN` for authenticated downloads | `comfyapp.py:386, 402` |
-| Local directory | `output/` | — | Generated animation/video outputs (gitignored) | Project root |
-
-### Volume details
-
-```python
-vol = modal.Volume.from_name("wan-models", create_if_missing=True)
-```
-
-- `from_name("wan-models")` — references a Modal Volume by name. If you rename it, update all function decorators that mount it.
-- `create_if_missing=True` — automatically creates the volume on first deploy if it does not exist.
-- The volume is mounted at `/cache` in both `download_all_models` and `ui` functions via the `volumes={CACHE_DIR: vol}` parameter.
-
-## Model Download Configuration
-
-Model downloading is handled by the `download_models()` function (`comfyapp.py:35-164`) using a `_link()` helper:
-
-```python
-def _link(model_subdir, repo, filepath, filename=None):
-    dest = comfy_models / model_subdir / filename
-    if dest.exists() or dest.is_symlink():
-        return
-    src = hf_hub_download(repo_id=repo, filename=filepath, cache_dir=cache_dir)
-    dest.symlink_to(src)
-```
-
-### Adding a new model
-
-To add a new model, insert a call to `_link()` in the `download_models()` function:
-
-```python
-_link("diffusion_models", "org/repo-name", "path/to/model.safetensors")
-```
-
-Parameters:
-- `model_subdir` — subdirectory under `/root/comfy/ComfyUI/models/` (e.g., `"diffusion_models"`, `"text_encoders"`, `"vae"`, `"loras"`, `"clip_vision"`, `"sam"`, `"onnx"`, `"nlf"`)
-- `repo` — HuggingFace Hub repository ID (e.g., `"Comfy-Org/Wan_2.2_ComfyUI_Repackaged"`)
-- `filepath` — path within the repository
-- `filename` — optional override for the destination filename (defaults to `Path(filepath).name`)
-
-### Model subdirectories created automatically
-
-```python
-for subdir in ("diffusion_models", "text_encoders", "vae",
-               "clip_vision", "loras", "sam", "onnx", "nlf"):
-    (comfy_models / subdir).mkdir(parents=True, exist_ok=True)
-```
-
-If you add a new `model_subdir` value to a `_link()` call that doesn't exist in this list, also add it here, or the directory will not exist and the symlink will fail.
-
-### Symlink subdirectories
-
-After downloading, the code creates convenience subdirectories under `diffusion_models/`:
-
-| Subdirectory | Contains symlinks to |
-|-------------|---------------------|
-| `Wan22Animate/` | `Wan2_2-Animate-14B_fp8_scaled_e4m3fn_KJ_v2.safetensors` |
-| `Wan22Bernini/` | `Wan22_Bernini_HIGH_*.safetensors`, `Wan22_Bernini_LOW_*.safetensors` |
-
-This is required because some ComfyUI workflows expect models to be in subdirectory paths. Edit the `wan22_entries` dict at line 145-151 to add more.
-
-### Skip mechanism
-
-If a symlink or file already exists at the destination path, `_link()` prints `EXISTS: {name}` and skips the download. This is what makes subsequent deploys fast — the `wan-models` volume persists the cache across deployments.
-
-### Current models downloaded
-
-Refer to [ARCHITECTURE.md](ARCHITECTURE.md#models-directory-structure) for the complete inventory of currently downloaded models and their source repositories.
-
-## Custom Node Configuration
-
-Custom nodes are added during image build via git clone and optional `pip install -r requirements.txt`. The current set of 25 custom nodes is defined in `comfyapp.py:195-354`.
-
-### Adding a custom node
-
-Add a new `.run_commands(...)` block in the image definition:
-
-```python
-.run_commands(
-    f"cd {COMFY_DIR}/ComfyUI/custom_nodes"
-    " && git clone https://github.com/owner/repo-name",
-    f"cd {COMFY_DIR}/ComfyUI/custom_nodes/repo-name"
-    " && pip install -r requirements.txt",
-)
-```
-
-Some nodes have no Python dependencies — in that case, omit the `pip install` command.
-
-### Removing a custom node
-
-Delete the corresponding `.run_commands(...)` block.
-
-> **Note:** The `ComfyUI-Manager` and `comfyui-scail2` nodes are installed without `pip install -r requirements.txt` because their dependencies are already satisfied by other layers or they are pure Python/no-dependency nodes.
-
-## Workflow Configuration
-
-ComfyUI workflow files are plain JSON placed in the `workflows/` directory at the project root:
-
-```
-workflows/
-├── SCAIL-2_Animation.json
-├── SCAIL-2_Animation_multi-char.json
-├── SCAIL-2_Animation_multi-ref.json
-├── SCAIL-2_Animation_WAN-Context-Windows.json
-├── SCAIL-2_Replacement.json
-├── SCAIL2_simple.json
-├── SCAIL2_multi_ref.json
-├── Wananimate.json
-├── example_workflow_001.json
-└── example_workflow_bernini.json
-```
-
-### Adding a workflow
-
-Copy a new JSON file into the `workflows/` directory:
-
-```bash
-cp my_workflow.json workflows/
-git add workflows/my_workflow.json
-git commit -m "Add my_workflow.json"
-```
-
-On next deploy (`modal deploy comfyapp.py`), the workflow will appear in ComfyUI's web interface. The `workflows/` directory is included in the git repository but not mounted into the container — workflows are part of the image build and require redeployment to update.
-
-## Default Timeouts and Limits Summary
-
-| Parameter | Value | Where configured |
-|-----------|-------|-----------------|
-| Model download timeout | 3600s | `comfyapp.py:387` `timeout=3600` |
-| Web UI function timeout | 1800s | `comfyapp.py:403` `timeout=1800` |
-| Web server startup timeout | 600s | `comfyapp.py:406` `startup_timeout=600` |
-| Container idle timeout | 300s | Modal platform default |
-| Max concurrent requests | 5 | `comfyapp.py:405` `@modal.concurrent(max_inputs=5)` |
-| UI function memory | 32768 MB | `comfyapp.py:399` `memory=32768` |
-| UI function CPU | 8.0 vCPUs | `comfyapp.py:400` `cpu=8.0` |
-| Web server port | 8188 | `comfyapp.py:406, 411` |
-
-## Per-Environment Overrides
-
-All configuration lives in `comfyapp.py` — there is no per-environment configuration mechanism (no `.env.development`, `.env.production`, etc.). To change configuration for a specific environment:
-
-1. **Staging/Testing**: Deploy a separate Modal app with a different app name by editing `modal.App("wan22-animate-scail2", ...)` to `modal.App("wan22-animate-scail2-staging", ...)`.
-2. **Production**: The primary deployment uses `modal deploy comfyapp.py`. Adjust resource parameters (GPU, memory, timeout) directly in the source.
-
-Modal's platform settings (secrets, volumes) are environment-scoped by Modal workspace. Use different Modal workspaces (`modal profile`), or different secret/volume names for isolation.
+| Web server port | 8188 | `@modal.web_server(8188, …)` |
+| Web server startup timeout | 1800 s | `startup_timeout=1800` |
+| `download_all_models` timeout | 3600 s | `@app.function(…, timeout=3600)` |
+| Health-poll deadline (loading-fix) | 300 s | inside `ui()` |
+| Volume name | `wan-models` | `modal.Volume.from_name("wan-models", create_if_missing=True)` |
+| Volume mount point | `/cache` | `volumes={CACHE_DIR: vol}` |
+| HuggingFace secret name | `huggingface` | `modal.Secret.from_name("huggingface")` |
+
+To change these, edit `apps/server/templates/comfyapp.py.tpl` directly (they are not surfaced as UI options).
+
+## Per-environment overrides
+
+There is no `.env.development` / `.env.production` split. To run separate environments:
+
+1. **Different Modal accounts** — add a second account in Keys, switch to it. Each account is its
+   own Modal workspace, so apps/volumes/secrets are isolated by account.
+2. **Different app names** — change the app name in Configure to avoid clashing with a production
+   deploy (Modal app names are unique per workspace).
+3. **Different config dir** — `WAN22_CONFIG_DIR=/tmp/wan22-staging npm start` to keep a separate
+   set of accounts/instances.

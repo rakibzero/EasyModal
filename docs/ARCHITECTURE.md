@@ -1,240 +1,250 @@
-<!-- generated-by: gsd-doc-writer -->
 # Architecture
 
 ## System Overview
 
-Wan2.2Animate is a cloud-deployed ComfyUI server on [Modal](https://modal.com) that pre-loads video-generation diffusion models — Wan2.2, SCAIL-2, WanAnimate+, and Bernini — onto an A100-80GB GPU. Users deploy via the Modal CLI, then access a full ComfyUI web interface through a Modal-generated HTTPS endpoint. The system follows a **container-based serverless deployment** pattern: a custom Docker image is built with all dependencies (system packages, ComfyUI, ~25 custom node repositories), models are downloaded at runtime and cached in a persistent Modal Volume, and ComfyUI serves as the interactive frontend for loading/running workflows.
+Wan2.2Animate Deploy is a **local orchestrator + web UI** that deploys [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+on [Modal](https://modal.com) serverless GPUs. The user interacts only with a browser-based UI
+served from their own machine; compute runs on their own Modal account.
 
-**Primary input**: Pre-built ComfyUI JSON workflow files (in `workflows/`).  
-**Primary output**: Generated video frames and animations (written to `output/`).  
-**Architectural style**: Serverless container deployment with persistent storage.
+The system has two halves:
 
-## Component Diagram
+1. **Local app** (this repo) — an npm-workspaces monorepo: a React/Vite frontend and a Fastify
+   backend. The backend renders a Python template, shells out to the `modal` CLI, and streams
+   progress back over SSE.
+2. **Deployed ComfyUI** (on Modal) — built from the rendered `comfyapp.py`. A custom Modal Image
+   bundles ComfyUI + selected custom nodes + workflow JSONs; a `wan-models` Volume persists
+   models and user state across cold starts.
+
+**Architectural style**: local orchestrator driving serverless container deploys, with a
+persistent-volume-backed symlink layer for state that survives container recycling.
+
+## High-level diagram
 
 ```mermaid
 graph TD
-    subgraph "Modal Cloud"
-        A["modal.App<br/>(wan22-animate-scail2)"]
-        B["modal.Image<br/>(Debian slim + Python 3.11)"]
-        C["@modal.web_server<br/>(port 8188)"]
-        D["@app.function<br/>download_all_models"]
-        E["modal.Volume<br/>(wan-models)"]
-        F["ComfyUI<br/>(process)"]
+    subgraph "Local machine (this repo)"
+        U["User<br/>(browser)"]
+        W["apps/web<br/>React + Vite"]
+        S["apps/server<br/>Fastify + SSE"]
+        CS["~/.wan22-deploy/<br/>config.json, instances.json<br/>(0600 plaintext key store)"]
     end
 
-    subgraph "Image Build (build time)"
-        G["System deps<br/>(ffmpeg, libgl, git, ...)"]
-        H["comfy-cli install<br/>(--fast-deps --nvidia)"]
-        I["Custom nodes<br/>(~25 git repos)"]
-        J["Python packages<br/>(fastapi, huggingface-hub,<br/>flash-attn, onnxruntime-gpu, ...)"]
+    subgraph "Render + deploy"
+        T["comfyapp.py.tpl<br/>+ packs.ts"]
+        R["renderTemplate()<br/>ast.parse validation"]
+        MCLI["modal CLI<br/>(deploy / run / app list)"]
     end
 
-    subgraph "Runtime"
-        K["download_models()<br/>(huggingface_hub)"]
-        L["Models directory<br/>(/root/comfy/ComfyUI/models/)"]
-        M["HF cache<br/>(/cache → Volume)"]
+    subgraph "Modal cloud (per account)"
+        APP["modal.App<br/>wan22-animate"]
+        IMG["modal.Image<br/>Debian + ComfyUI + nodes + workflows"]
+        UI["@modal.web_server :8188"]
+        DL["download_all_models<br/>(Prefetch)"]
+        VOL["modal.Volume<br/>wan-models"]
+        RESET["reset_custom_nodes /<br/>wipe_account_dirs"]
     end
 
-    subgraph "Models"
-        N["diffusion_models/<br/>(Wan2.2, SCAIL-2,<br/>WanAnimate+, Bernini, GGUF)"]
-        O["text_encoders/<br/>(umt5_xxl fp8 + bf16)"]
-        P["vae/<br/>(wan_2.1 + wan2.2)"]
-        Q["clip_vision/<br/>(clip_vision_h)"]
-        R["loras/<br/>(Lightx2v, SCAIL-2 DPO,<br/>WanAnimate relight)"]
-        S["sam/<br/>(SAM3.1 + SAM2.1)"]
-        T["onnx/<br/>(vitpose, yolov10)"]
-        U["nlf/<br/>(nlf_l_multi)"]
-    end
-
-    A --> B
-    A --> C
-    A --> D
-    C --> F
-    B --> G
-    B --> H
-    B --> I
-    B --> J
-    F --> K
-    K --> M
-    M -.->|symlink| L
-    L --> N
-    L --> O
-    L --> P
-    L --> Q
-    L --> R
-    L --> S
-    L --> T
-    L --> U
-    D --> K
-    E -->|mounted at /cache| K
-    E -->|mounted at /cache| F
+    U -->|HTTP /api| W
+    W -->|proxy /api| S
+    S -->|read/write creds| CS
+    S -->|render| R
+    T --> R
+    R -->|comfyapp.py| MCLI
+    MCLI -->|deploy| APP
+    APP --- IMG
+    APP --- UI
+    APP --- DL
+    APP --- RESET
+    UI -.->|mount| VOL
+    DL -.->|mount| VOL
+    RESET -.->|mount| VOL
+    S -->|stream stdout| U
 ```
 
-## Data Flow
+## Component breakdown
 
-1. **Deploy**: The user runs `modal deploy comfyapp.py`, which submits the image and app definition to Modal's cloud.
-2. **Image build**: Modal builds the container image — installs system packages, runs `comfy-cli install` to download ComfyUI, clones ~25 custom node repositories, and installs Python dependencies.
-3. **Model download**: At container start, `download_models()` runs inside the web server function. It uses `huggingface_hub` to download model files (with `HF_TOKEN` from the `huggingface` Modal secret). Each file is symlinked from the HuggingFace cache (`/cache`) into the appropriate ComfyUI models subdirectory.
-4. **ComfyUI launch**: After model download completes, `comfy launch -- --listen 0.0.0.0 --port 8188` starts the ComfyUI process bound to port 8188.
-5. **User access**: Modal exposes the web server via a public HTTPS URL. The user opens this URL in a browser, loads a workflow JSON from the `workflows/` directory, and runs inference.
-6. **Model caching**: The `wan-models` Volume persists the HuggingFace cache (`/cache`) across redeploys. Subsequent deploys skip model downloads (symlinks already exist) and start ComfyUI in seconds.
+### apps/web (frontend)
 
-## Image Build Details
+- **Stack:** React 18, Vite 6, TypeScript 5.7, Tailwind CSS v4, Zustand.
+- **Pages** (`src/pages/`), one per step in the flow:
+  - `SetupPage` — environment prerequisites check (Node version, `modal` CLI presence/version).
+  - `KeysPage` — add/remove Modal accounts (each = label + Modal token id/secret + optional HF token),
+    shows masked tokens + HF status. Calls `/api/accounts`.
+  - `ConfigurePage` — hardware dropdowns (GPU/RAM/vCPU/concurrency/timeout/app name) + workflow-pack
+    toggles. Persisted to `localStorage` (`wan22-deploy-config`).
+  - `WorkflowsPage` — browses the bundled workflow catalog (`/api/workflows`), grouped by pack,
+    with download buttons.
+  - `DeployPage` — account picker + config summary + deploy button. Streams milestones via SSE.
+  - `LaunchPage` — lists all instances across accounts, with the live `*.modal.run` URL, Refresh,
+    Copy link, Reset custom_nodes, Redeploy, Remove actions.
+- **State:** `src/store/appStore.ts` (Zustand). Holds the current step, deploy config, and log
+  buffer; persists to `localStorage`.
+- **SSE:** `src/api/client.ts` `subscribeEvents()` opens an `EventSource` on `/api/events` and
+  feeds every deploy log line + milestone into the store.
 
-The Modal image (`modal.Image.debian_slim(python_version="3.11")`) is layered as follows:
+### apps/server (backend)
 
-| Layer | Contents |
-|-------|----------|
-| **System packages** | `git`, `wget`, `ffmpeg`, `libgl1`, `libglib2.0-0`, `libsm6`, `libxext6`, `libxrender-dev`, `libfontconfig` |
-| **Core Python** | `fastapi`, `comfy-cli==1.5.3`, `boto3`, `huggingface-hub>=0.26.0` |
-| **ComfyUI install** | `comfy --skip-prompt install --fast-deps --nvidia --skip-manager` (nightly = latest master) |
-| **Optional** | `pip install sageattention` (ignored if build fails) |
-| **Custom nodes** | ~25 git clones — see "Custom Nodes" section below |
-| **Additional Python** | `numpy`, `transformers>=4.40.0`, `flash-attn`, `ninja`, `packaging`, `safetensors`, `onnxruntime-gpu`, `opencv-python-headless`, `scipy`, `einops`, `accelerate`, `imageio`, `imageio-ffmpeg` |
+- **Stack:** Fastify 5, pino logging, TypeScript.
+- **Entry:** `src/main.ts` — finds a free port (default `7421`, override via `PORT`), registers
+  routes, serves the built web bundle in production, auto-opens the browser.
 
-## Custom Nodes
+#### Route modules (`src/routes/`)
 
-The following ComfyUI custom node repositories are cloned into `{COMFY_DIR}/ComfyUI/custom_nodes/` during image build:
+| Route file | Endpoints | Purpose |
+|-----------|-----------|---------|
+| `health.ts` | `GET /api/health` | Liveness probe. |
+| `prereqs.ts` | `GET /api/prereqs` | Checks Node version + `modal` CLI path/version. |
+| `accounts.ts` | `GET/POST /api/accounts`, `DELETE /api/accounts/:id`, `POST /api/accounts/validate(-hf)` | Add/remove/validate Modal + HF tokens. |
+| `instances.ts` | `GET/POST /api/instances`, `DELETE /api/instances/:id`, `POST /api/instances/deploy`, `POST /api/instances/:id/refresh`, `POST /api/instances/:id/reset-nodes`, `POST /api/instances/:id/switch-account` | Deploy, list, refresh status, reset nodes, switch account. |
+| `workflows.ts` | `GET /api/workflows`, `GET /api/workflows/:pack/:filename` | Browse/download bundled workflow JSONs. |
+| `events.ts` | `GET /api/events` | SSE stream (`reply.hijack()`). |
 
-| Repository | Description |
-|------------|-------------|
-| `ComfyUI-VideoHelperSuite` | Video frame loading and manipulation |
-| `ComfyUI-WanVideoWrapper` | Kijai's WanVideo node wrappers |
-| `ComfyUI-KJNodes` | General-purpose utility nodes |
-| `ComfyUI-Custom-Scripts` | Pythongosssss's custom UI scripts |
-| `rgthree-comfy` | Power user workflow nodes |
-| `ComfyUI_Essentials` | Essential utility nodes |
-| `was-node-suite-comfyui` | WAS Node Suite (image processing) |
-| `cg-use-everywhere` | Route any node output anywhere in the graph |
-| `ComfyUI-Frame-Interpolation` | Frame interpolation (CPU mode, no CuPy) |
-| `ComfyUI-RMBG` | Background removal |
-| `ComfyUI-Inpaint-CropAndStitch` | Inpainting helper |
-| `ComfyUI-fofr-toolkit` | Fofr's toolkit utilities |
-| `efficiency-nodes-comfyui` | Workflow efficiency and batching |
-| `KayTool` | General-purpose tool nodes |
-| `ComfyUI-WanAnimatePlus` | WanAnimate+ node pack (wuwukaka) |
-| `ComfyUI-WanAnimatePreprocess` | Preprocessing (VitPose detectors) |
-| `ComfyUI-SCAIL-Pose` | SCAIL-2 pose conditioning |
-| `comfyui-scail2` | Faithful SCAIL-2 wrapper (llikethat) |
-| `ComfyUI-SDPose-OOD` | Pose-conditioned generation |
-| `ComfyUI_Swwan` | Swwan utility nodes |
-| `ComfyUI-segment-anything-2` | SAM2 segmentation (Kijai) |
-| `ComfyUI-GGUF` | GGUF model loader (city96) |
-| `ComfyUI-Impact-Pack` | Impact Pack for advanced workflows |
-| `ComfyUI-Manager` | ComfyUI custom node manager |
-| `civitai-comfy-nodes` | Civitai model browser and downloader |
+#### Modal layer (`src/modal/`)
 
-## Models Directory Structure
+- **`cli.ts`** — the rendering core.
+  - `renderTemplate(cfg)` reads `templates/comfyapp.py.tpl` and substitutes placeholders:
+    `{{APP_NAME}}`, `{{GPU}}`, `{{MAX_INPUTS}}`, `{{TIMEOUT_SECONDS}}`, `{{MEMORY_MB}}`, `{{CPU}}`,
+    `{{NODE_CLONES}}`, `{{EXTRA_MODELS}}`, `{{WORKFLOW_BUNDLE}}`.
+  - `renderNodeClones(nodes)` → `.run_commands("cd …/custom_nodes && git clone URL[ && cd X && pip install -r requirements.txt]")` per node.
+  - `renderExtraModels(models)` → Python tuples appended to the `MODELS` list.
+  - `renderWorkflowBundle(workflows)` → base64-inlines each workflow JSON into
+    `.run_commands("… | base64 -d > …/user/default/workflows/<file>")` (Modal Image can't `ADD_CONTEXT`
+    local files without a Dockerfile, so content is inlined).
+  - `deployRenderedTemplate(cfg, cb)` writes the rendered file to a temp dir and spawns
+    `modal deploy comfyapp.py`, streaming stdout/stderr line-by-line to callbacks.
+- **`packs.ts`** — pack definitions.
+  - `CORE_NODES`: 25 always-installed custom nodes (VideoHelperSuite, WanVideoWrapper, KJNodes,
+    ComfyUI-Manager, Impact-Pack, SCAIL-Pose, WanAnimatePlus, …).
+  - `PACKS`: `wan22` (core, empty extras), `image-edit` (Flux/Qwen/Ernie nodes + models),
+    `upscaling` (SUPIR/SeedVR nodes + models).
+  - `resolveNodes(packs)` / `resolveModels(packs)` dedupe + concatenate.
+- **`milestones.ts`** — classifies raw `modal deploy` log lines into milestones
+  (`image-building`, `models-downloading`, `comfyui-starting`, `url-ready`, `failed`) shown in the UI.
 
-Models are stored under `{COMFY_DIR}/ComfyUI/models/` (`/root/comfy/ComfyUI/models/`) with the following subdirectory layout:
+#### Accounts (`src/accounts/modal.ts`)
 
-```
-models/
-├── diffusion_models/        # Core diffusion model weights
-│   ├── wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors
-│   ├── wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors
-│   ├── wan2.1_14B_SCAIL_2_fp8_scaled.safetensors
-│   ├── wan2.1_14B_SCAIL_2_fp16.safetensors
-│   ├── SCAIL-2-Q5_K_M.gguf  (and Q6_K, Q8_0)
-│   ├── Wan2_2-Animate-14B_fp8_e5m2_scaled_KJ_v2.safetensors
-│   ├── Wan22_Bernini_HIGH_fp8_e4m3fn_scaled.safetensors
-│   ├── Wan22_Bernini_LOW_fp8_e4m3fn_scaled.safetensors
-│   ├── Wan2_2-Animate-14B_fp8_scaled_e4m3fn_KJ_v2.safetensors
-│   ├── Wan22Animate/        # Symlink subdirectory
-│   │   └── Wan2_2-Animate-14B_fp8_scaled_e4m3fn_KJ_v2.safetensors → ..
-│   └── Wan22Bernini/        # Symlink subdirectory
-│       ├── Wan22_Bernini_HIGH_fp8_e4m3fn_scaled.safetensors → ..
-│       └── Wan22_Bernini_LOW_fp8_e4m3fn_scaled.safetensors → ..
-├── text_encoders/
-│   ├── umt5_xxl_fp8_e4m3fn_scaled.safetensors
-│   └── umt5-xxl-enc-bf16.safetensors
-├── vae/
-│   ├── wan_2.1_vae.safetensors
-│   ├── wan2.2_vae.safetensors
-│   └── Wan2_1_VAE_bf16.safetensors
-├── clip_vision/
-│   └── clip_vision_h.safetensors
-├── loras/
-│   ├── Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors
-│   ├── lightx2v_I2V_14B_480p_cfg_step_distill_rank128_bf16.safetensors
-│   ├── Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64_720.safetensors
-│   ├── lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
-│   ├── wan2.1_SCAIL_2_DPO_lora_bf16.safetensors
-│   ├── WanAnimate_relight_lora_fp16.safetensors
-│   └── WanAnimate_relight_lora_fp16_resized_from_128_to_dynamic_22.safetensors
-├── sam/
-│   ├── sam3.1_multiplex_fp16.safetensors
-│   └── sam2.1_hiera_large.safetensors
-├── onnx/
-│   ├── vitpose-l-wholebody.onnx
-│   └── yolov10m.onnx
-└── nlf/
-    └── nlf_l_multi_0.3.2_fp16.safetensors
-```
+Thin wrappers over the `modal` CLI via `execFile`:
 
-### Symlink Mechanism
+- `validateModalToken(id, secret)` — `modal token set` into a throwaway `wan22-validate` profile,
+  then `modal profile current` to confirm.
+- `persistModalToken(id, secret)` — writes the token under the real profile.
+- `activateAccountProfile(accountId, id, secret)` — writes the token under `wan22-<accountId>` and
+  marks it active. Called before every deploy / reset / switch so the right account is targeted.
+- `setHuggingFaceSecret(token)` — `modal secret put huggingface HF_TOKEN=…` (idempotent).
 
-Model files are not copied directly into the ComfyUI directory. Instead:
+> **Concurrency model:** one account active at a time. The active profile lives in `~/.modal.toml`.
+> Account switching is serialized through the UI. (Per-account config-file isolation via
+> `MODAL_CONFIG_PATH` is a documented future option if concurrent multi-account deploys are needed.)
 
-1. `huggingface_hub` downloads files into the HuggingFace cache under `/cache` (the mounted Volume).
-2. The `_link()` helper creates a **symlink** from `{MODEL_DIR}/{subdir}/{filename}` pointing to the cached file.
-3. If a symlink or file already exists, the download is skipped — enabling fast deploys after the initial run.
+#### Persistence layer (`src/repo/`)
 
-Post-download, the code also creates **symlink subdirectories** under `diffusion_models/` — `Wan22Animate/` and `Wan22Bernini/` — which contain symlinks back to the actual model files. This accommodates workflows that expect models in subdirectory paths.
+- `configStore.ts` — `~/.wan22-deploy/config.json` (0600). Stores accounts (with HF tokens) and
+  the `activeAccountId`. Plaintext by design — matches `modal`/`aws`/`git` CLI conventions.
+  Override location with `WAN22_CONFIG_DIR`.
+- `instances.ts` — `~/.wan22-deploy/instances.json` (0600). Stores deployed-instance records
+  (id, accountId, appName, config, status, url, timestamps, lastError).
 
-## Storage Architecture
+### packages/shared
 
-| Resource | Purpose | Mount Point |
-|----------|---------|-------------|
-| `modal.Volume("wan-models")` | Persists HuggingFace model cache across deployments | `/cache` |
-| `Modal Secret("huggingface")` | Stores `HF_TOKEN` for authenticated HuggingFace downloads | Environment variable |
-| Local `output/` directory | Generated video outputs (gitignored) | `output/` |
+Shared TypeScript types consumed by both web and server: `Account`, `InstanceStatus`,
+`DeployConfig`, `GpuOption` + `GPU_OPTIONS`, `RAM_OPTIONS_GB`, `CPU_OPTIONS`,
+`TIMEOUT_OPTIONS_MIN`, `WorkflowPack` + `WORKFLOW_PACKS`, `LogEvent`, `Milestone`.
 
-The Volume is **created once** (`create_if_missing=True`) and shared across all function invocations. It has a 1-hour timeout for model downloads and a 30-minute timeout for the web server function.
+## The deployed ComfyUI app (the template)
 
-## Workflows
+`apps/server/templates/comfyapp.py.tpl` is the heart of the product. It is **rendered per-deploy**,
+not edited directly. Rendered output is a complete Modal app.
 
-Ten ComfyUI JSON workflow files are in `workflows/`:
+### CONFIG (single source of truth, rendered from placeholders)
 
-| File | Purpose |
-|------|---------|
-| `SCAIL-2_Animation.json` | SCAIL-2 video animation (primary) |
-| `SCAIL-2_Animation_multi-char.json` | SCAIL-2 with multiple characters |
-| `SCAIL-2_Animation_multi-ref.json` | SCAIL-2 with multiple reference images |
-| `SCAIL-2_Animation_WAN-Context-Windows.json` | SCAIL-2 with context windowing |
-| `SCAIL-2_Replacement.json` | SCAIL-2 inpainting / object replacement |
-| `SCAIL2_simple.json` | Simplified SCAIL-2 workflow |
-| `SCAIL2_multi_ref.json` | Multi-reference SCAIL-2 |
-| `Wananimate.json` | WanAnimate+ animation workflow |
-| `example_workflow_001.json` | General-purpose example |
-| `example_workflow_bernini.json` | Bernini animation workflow |
-
-> **Note**: Most workflows reference models beyond what is currently downloaded in `download_models()`. Workflows may fail if they require models (e.g., IPAdapter models, additional LoRAs, or specific CLIP variants) not included in the current download set. See the debug session `all-possible-failure` for details.
-
-## Key Abstractions
-
-| Abstraction | Description | Location |
-|-------------|-------------|----------|
-| `modal.App` | Top-level Modal application container (`wan22-animate-scail2`) | `comfyapp.py:377` |
-| `modal.Image` | Container image definition with layered build steps | `comfyapp.py:171-371` |
-| `modal.Volume` | Persistent storage for the HuggingFace model cache | `comfyapp.py:28` |
-| `@modal.web_server` | Decorator that exposes a function as an HTTPS web server on port 8188 | `comfyapp.py:406` |
-| `download_models()` | Module-level function that downloads and symlinks all model files | `comfyapp.py:35-164` |
-| `_link()` | Helper that creates conditional symlinks from HF cache to ComfyUI model dirs | `comfyapp.py:49-61` |
-| `@app.function` | Modal serverless function decorator (used for both download and web server) | `comfyapp.py:384,397` |
-| `@modal.concurrent` | Limits concurrent requests (max 5) | `comfyapp.py:405` |
-| `@app.local_entrypoint` | Modal local CLI entrypoint for pre-downloading models | `comfyapp.py:420` |
-
-## Directory Structure Rationale
-
-```
-Wan2.2Animate/
-├── comfyapp.py        # Single-file application: image build, model download, web server
-├── workflows/         # ComfyUI JSON workflow files (user-facing)
-├── output/            # Generated animation/video outputs (gitignored)
-├── docs/              # Documentation
-├── .env               # Local environment configuration (gitignored)
-└── README.md          # Quick-start guide
+```python
+CONFIG = {
+    "app_name": "{{APP_NAME}}",
+    "gpu": "{{GPU}}",
+    "max_inputs": {{MAX_INPUTS}},
+    "timeout_seconds": {{TIMEOUT_SECONDS}},
+    "memory_mb": {{MEMORY_MB}},
+    "cpu": {{CPU}},
+}
 ```
 
-The project is intentionally **flat and single-file** — `comfyapp.py` contains everything from the Modal image definition to the web server startup. This is appropriate for a Modal deployment where the entire application is a single container. The `workflows/` directory is separated because workflow JSON files are user-authored assets that need versioning, while the `output/` directory is gitignored because generated videos are large binary artifacts. Documentation lives in `docs/` to keep the root directory minimal.
+### Image build (ordered layers)
+
+1. `debian_slim(python_version="3.11")` base.
+2. `apt_install` — git, wget, ffmpeg, libgl1, libglib2.0-0, libsm6, libxext6, libxrender-dev, libfontconfig.
+3. `uv_pip_install` — fastapi, comfy-cli, boto3, huggingface-hub.
+4. `run_commands` — `comfy --skip-prompt install --fast-deps --nvidia --skip-manager`.
+5. `run_commands` — `pip install sageattention` (best-effort).
+6. **`{{NODE_CLONES}}`** — one `.run_commands(...)` per custom node (core + selected packs).
+7. `uv_pip_install` — numpy, transformers, ninja, safetensors, onnxruntime-gpu, opencv-headless,
+   scipy, einops, accelerate, imageio, imageio-ffmpeg.
+8. **`{{WORKFLOW_BUNDLE}}`** — base64-inline each bundled workflow JSON into
+   `/root/comfy/ComfyUI/user/default/workflows/`.
+
+### Volume + persistence
+
+```python
+vol = modal.Volume.from_name("wan-models", create_if_missing=True)
+CACHE_DIR = "/cache"
+VOL_MODELS = f"{CACHE_DIR}/models"
+```
+
+Four directories are symlinked onto the volume so they survive cold starts:
+
+| ComfyUI path | Volume path | Survives restarts? |
+|--------------|-------------|--------------------|
+| `models/` | `/cache/models` | Yes (prefetched by `download_all_models`) |
+| `custom_nodes/` | `/cache/custom_nodes` | Yes (Manager installs persist) |
+| `input/` | `/cache/input` | Yes (uploaded images/clips) |
+| `output/` | `/cache/output` | Yes (generated images/videos) |
+| `user/` | `/cache/user` | Yes (saved workflows, settings) |
+
+`_link_to_volume(name, comfy_path, vol_path, image_baseline=...)`:
+- If the volume dir is empty AND an image baseline exists (custom_nodes), it copies the image-baked
+  baseline in — **even when the symlink already exists**. This is the re-seed path taken after a
+  reset/switch wipe; without it, a wiped volume would stay empty forever.
+- If `comfy_path` is already a symlink, the link is in place → done (warm boot).
+- Otherwise it seeds the volume from the on-image dir, then replaces the dir with a symlink.
+
+`ensure_persistent_dirs()` runs all four through `_link_to_volume` on every cold start.
+
+### Functions
+
+| Function | Purpose | GPU | Mounts volume |
+|----------|---------|-----|---------------|
+| `download_all_models()` | Prefetch all models to the volume (the "Prefetch" step). First run 15–30 min. | none (CPU) | Yes |
+| `ui()` | `@modal.web_server(8188)`. Symlinks models + persistent dirs, spawns ComfyUI, **blocks until it answers HTTP** (closes the "URL handed out before ComfyUI is ready" gap). | `CONFIG["gpu"]` | Yes |
+| `reset_custom_nodes()` | Wipes `/cache/custom_nodes` back to image baseline. Next cold start re-seeds. | none | Yes |
+| `wipe_account_dirs()` | Wipes `custom_nodes`/`input`/`output`/`user` for an account switch. Models kept. | none | Yes |
+| `main()` (local_entrypoint) | Runs `download_all_models.remote()` — used by `modal run comfyapp.py`. | — | — |
+
+### The loading-fix
+
+`ui()` does **not** call `download_models()` on every cold start (that caused the "URL loads for
+hours" symptom — every cold container re-statted 30+ models while Modal's proxy held the browser
+request). It only re-creates the model-dir symlinks (fast, idempotent) and health-polls ComfyUI
+until it returns HTTP 200 before returning — so Modal never marks the container "ready" prematurely.
+
+## Data flow: a deploy
+
+1. User picks account + config + packs, clicks Deploy → `POST /api/instances/deploy`.
+2. Server `activateAccountProfile(accountId, …)` so the right account is targeted.
+3. `deployRenderedTemplate(cfg, callbacks)`:
+   - Renders the template → temp `comfyapp.py`.
+   - Spawns `modal deploy comfyapp.py`.
+   - Each stdout/stderr line → `classifyLine()` → milestone → SSE event → UI.
+   - On a `*.modal.run` URL in the output, captured into the instance record.
+4. Modal builds the image (or reuses cached layers), starts the `ui` function.
+5. `ui()` mounts the volume, symlinks dirs, spawns ComfyUI, health-polls, returns.
+6. Modal publishes the HTTPS endpoint; the server captures the real URL (never guessed).
+7. **Launch** step shows the URL; user clicks **Open ComfyUI** 🚀.
+
+## Security model
+
+- Keys stored in `~/.wan22-deploy/` (0600 plaintext), never in the repo. `.gitignore` excludes `.env`.
+- No encryption layer — by design, matching `modal`/`aws`/`git` CLI conventions. The threat model
+  is "single-user local tool," not multi-tenant.
+- Tokens are sent to Modal's API via the `modal` CLI over HTTPS; nothing leaves the machine except
+  to Modal/HuggingFace.
+- The deployed ComfyUI endpoint is a public Modal URL (no auth gate). Anyone with the link can use
+  it. Treat the URL as a secret; use Modal's access controls if you need to lock it down.

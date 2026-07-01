@@ -1,172 +1,148 @@
-<!-- generated-by: gsd-doc-writer -->
 # Getting Started
 
-This guide walks you through deploying ComfyUI with Wan2.2 video animation models on [Modal](https://modal.com) cloud GPUs — from zero to running workflows in under 30 minutes.
+Deploy ComfyUI on Modal cloud GPUs from a browser UI — zero to animating in a few clicks.
+This guide walks through the six-step flow: **Setup → Keys → Configure → Workflows → Deploy → Launch**.
 
 ## Prerequisites
 
-Before you begin, make sure you have:
+- **Node.js 18+** — to run the local app.
+- **The `modal` CLI** — `pip install modal` (the app shells out to it). The Setup step checks it's present.
+- **A [Modal](https://modal.com) account** — sign up for free credits. Grab a token id + secret from
+  the [Modal token settings](https://modal.com/settings/tokens).
+- **A [HuggingFace](https://huggingface.co) account** — model downloads need a read token from
+  [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). (Some Wan2.2 repos are
+  gated — accept the license on the repo page first.)
 
-- **Python 3.11+** — the deployment runs on Modal's Debian slim Python 3.11 image
-- **A [Modal](https://modal.com) account** — sign up for free credits at modal.com
-- **A [HuggingFace](https://huggingface.co) account** — model downloads require a read token
-- **Modal CLI** — installed via pip (see below)
-- **Modal credentials** — authenticated via `modal token set` or `modal setup`
-
-## Installation Steps
-
-### 1. Install and authenticate the Modal CLI
-
-```bash
-pip install modal
-modal token set
-```
-
-The `modal token set` command will prompt you for your token ID and token secret from the [Modal Dashboard](https://modal.com/settings/tokens). Alternatively, run `modal setup` for the guided authentication flow.
-
-### 2. Clone the repository
+## 1. Start the app
 
 ```bash
 git clone <repo-url> wan22-animate
 cd wan22-animate
+npm install
+npm start
 ```
 
-<!-- VERIFY: Replace `<repo-url>` with the actual repository URL from your Git hosting provider. -->
+Your browser opens at **http://localhost:5173**. (In dev: `npm run dev` — web on 5173, server on 7421.)
 
-### 3. Create the HuggingFace secret
+> The app runs entirely on your machine. It stores your tokens locally
+> (`~/.wan22-deploy/`, 0600) and never sends them anywhere except Modal/HuggingFace over HTTPS.
 
-Model downloads require an authenticated HuggingFace token. Create a Modal secret named `huggingface` with your token:
+## 2. Setup
 
-```bash
-modal secret create huggingface HF_TOKEN=hf_your_token_here
-```
+The first screen checks your environment: Node version and that the `modal` CLI is installed and
+recent enough. Fix anything flagged, then continue.
 
-Replace `hf_your_token_here` with your actual HuggingFace read token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+## 3. Keys
 
-> **Why this is needed:** The `download_models()` function in `comfyapp.py` uses `huggingface_hub` to download model files from HuggingFace. Without a valid `HF_TOKEN`, downloads will fail silently.
+Add one or more Modal accounts:
 
-### 4. Pre-download all models (optional, recommended)
+- **Label** — a friendly name ("personal", "work").
+- **Modal token id** (`ak-…`) + **token secret** (`as-…`).
+- **HuggingFace token** (`hf_…`, optional but recommended).
 
-Before deploying the web UI, pre-download all models to the `wan-models` Modal Volume:
+Click **Validate** to confirm each token works before saving. The app:
 
-```bash
-modal run comfyapp.py
-```
+- Validates the Modal token by writing it to a throwaway profile and running `modal profile current`.
+- Pushes your HF token to a Modal secret named `huggingface` on the active account
+  (`modal secret put huggingface HF_TOKEN=…`).
 
-This runs the `download_all_models()` function on a CPU worker. It downloads and symlinks ~30+ model files (diffusion models, text encoders, VAEs, LoRAs, SAM, ONNX, NLF) into the ComfyUI `models/` directory, all cached in the `wan-models` volume.
+You can add multiple accounts and deploy to any of them. **One account is active at a time.**
 
-- **First run:** Takes **15–30 minutes** depending on your Modal region and network speed.
-- **Subsequent runs:** Seconds — the volume cache means only missing models are fetched.
+## 4. Configure
 
-You can skip this step and let the web server download models on first startup instead. However, pre-downloading is recommended so that the web server starts faster and you can confirm your `HF_TOKEN` works early.
+Pick your hardware and which workflow packs to bundle:
 
-## First Run
+- **App name** — becomes the Modal app name.
+- **GPU** — A100-80GB (default), H100, H200, L40S, L4, T4. The UI warns if you pick a GPU too small
+  for Wan2.2 (needs ≥40 GB VRAM).
+- **RAM** (8–256 GB), **vCPU** (2–32), **Max concurrent inputs** (1–4), **Idle timeout** (15–240 min).
+- **Workflow packs** — `wan22` (always on), plus optional `image-edit` and `upscaling`. Each pack
+  adds custom nodes + models to the image.
 
-### Deploy the ComfyUI web server
+These choices persist across sessions (localStorage) and are sent with every deploy.
 
-```bash
-modal deploy comfyapp.py
-```
+## 5. Workflows (optional browse)
 
-This command:
+A read-only catalog of the 28 bundled workflow JSONs, grouped by pack. Download any to inspect or
+share. They're already baked into the image on deploy, so no action needed here to use them.
 
-1. **Builds the container image** (~5–10 minutes on first run) — installs system packages, ComfyUI, 25+ custom nodes, and Python dependencies.
-2. **Downloads models** (if you skipped the pre-download step, this happens now; ~10–20 minutes).
-3. **Starts ComfyUI** on port 8188.
+## 6. Deploy
 
-Once the deployment succeeds, Modal prints a public HTTPS endpoint. It looks like:
+1. Pick the account to deploy to.
+2. Review the config summary card.
+3. Click **Deploy ComfyUI to Modal**.
 
-```
-https://wan22-animate-scail2--ui.modal.run
-```
+The app renders `comfyapp.py.tpl` with your choices, validates it as Python, then runs `modal deploy`.
+You'll see live, streamed progress with milestones:
 
-Open that URL in your browser. You should see the ComfyUI interface.
+- **Building container image** — Debian + ComfyUI + your selected custom nodes + bundled workflows.
+  First build ~5–10 min.
+- **Downloading models** — ~40 GB of Wan2.2 models into the `wan-models` volume. **First deploy
+  only** — subsequent deploys skip this (volume cache). 15–30 min on first run.
+- **Starting ComfyUI** — symlinks models + persistent dirs onto the volume, spawns ComfyUI,
+  health-polls until it answers HTTP.
+- **Deployment ready** — the real `*.modal.run` URL is captured (never guessed).
 
-### Run a workflow
+## 7. Launch
 
-1. In ComfyUI, drag a workflow JSON from the `workflows/` directory onto the canvas (or use ComfyUI's Load button).
-2. Adjust any parameters as needed (e.g., prompt text, seed, steps).
-3. Click **Queue Prompt** to generate.
+Click **🚀 Open ComfyUI**. You're in. Load a workflow from the menu, drop in an image, and animate.
 
-The `workflows/` directory includes 10 pre-configured workflows:
+### What persists across restarts
 
-| Workflow | Description |
-|----------|-------------|
-| `SCAIL-2_Animation.json` | SCAIL-2 video animation |
-| `SCAIL-2_Animation_multi-char.json` | Multi-character SCAIL-2 animation |
-| `SCAIL-2_Animation_multi-ref.json` | Multi-reference SCAIL-2 animation |
-| `SCAIL-2_Animation_WAN-Context-Windows.json` | Context-window based SCAIL-2 animation |
-| `SCAIL-2_Replacement.json` | SCAIL-2 inpainting / object replacement |
-| `SCAIL2_simple.json` | Simplified SCAIL-2 workflow |
-| `SCAIL2_multi_ref.json` | Multi-reference SCAIL-2 workflow |
-| `Wananimate.json` | WanAnimate+ workflow |
-| `example_workflow_001.json` | General example workflow |
-| `example_workflow_bernini.json` | Bernini workflow |
+Because `custom_nodes`, `input`, `output`, and `user` are symlinked onto the `wan-models` volume:
 
-## Redeploying After Changes
+- **ComfyUI Manager installs** survive container recycles — install once, keep forever.
+- **Uploaded inputs** (your source images/clips) stay.
+- **Generated outputs** stay.
+- **Saved workflows + settings** stay.
 
-If you modify `comfyapp.py` (e.g., add a custom node, change GPU type, add a model), redeploy:
+The container can scale to zero and wake back up with everything intact.
 
-```bash
-modal deploy comfyapp.py
-```
+## Managing instances (Launch step)
 
-**Redeploy speed:** The container image rebuilds from scratch, but:
-- The HuggingFace cache (`wan-models` volume) is persisted, so model re-downloads are skipped.
-- Image build still takes ~5–10 minutes (system deps, ComfyUI, custom nodes).
-- Total redeploy time: **~2–5 minutes** for the build, plus volume mount overhead.
+Each card on the Launch step represents a deployed instance:
 
-## Dev Mode (Ephemeral Tunnel)
+- **Refresh** — re-checks status via `modal app list`.
+- **Copy link** — copies the `*.modal.run` URL.
+- **Reset custom_nodes** — wipes Manager-installed nodes back to the image baseline. Use this if a
+  bad install breaks ComfyUI. Models/uploads/outputs are untouched.
+- **Redeploy** — go back to Deploy with the same config.
+- **Remove** — removes the instance from the local list (does **not** delete the Modal app; run
+  `modal app stop <name>` for that).
 
-For iterative development without creating a permanent deployment, use Modal's `serve` command:
+### Switching accounts
 
-```bash
-modal serve comfyapp.py
-```
+Use **Switch account** to hand off to another Modal account. It wipes `custom_nodes`/`input`/
+`output`/`user` on the volume so the next account starts clean (models are kept — they're large and
+account-independent), then activates the new account's token.
 
-<!-- VERIFY: `modal serve` creates a temporary tunnel with a Modal-generated URL. The URL changes each time you re-run the command. This is useful for testing changes before deploying. -->
+## Common issues
 
-This runs the app as an ephemeral tunnel. The URL is printed to stdout and changes each time you re-run `modal serve`. Press **Ctrl+C** to shut it down.
+### Deploy fails: "Required model download(s) failed"
 
-## Common Setup Issues
-
-### Missing HF_TOKEN causes silent model download failures
-
-**Symptom:** The web UI starts but models are missing. ComfyUI shows errors about missing checkpoint files or model loading failures.
-
-**Cause:** The `huggingface` Modal secret does not exist or `HF_TOKEN` is not set inside it. The `_link()` helper in `comfyapp.py` catches exceptions from `hf_hub_download` and prints `FAIL: {filename} (error)` instead of hard-failing, so the build/deploy succeeds even when model downloads fail.
-
-**Fix:** Recreate the secret:
-```bash
-modal secret create huggingface HF_TOKEN=hf_your_token_here
-```
-Then redeploy.
+Your HF token can't reach a model. Either the token is invalid, or the repo is gated and you
+haven't accepted its license on huggingface.co. Required models abort the deploy so you don't get a
+broken image — fix the token/access in Keys and redeploy.
 
 ### First deploy takes 30+ minutes
 
-**Symptom:** `modal deploy comfyapp.py` hangs or takes a very long time.
+Normal — 40 GB of models download once into the volume. Subsequent deploys skip the download.
+You're only billed for compute while a container is running; the volume storage cost is minimal.
 
-**Cause:** The first deploy downloads ~30+ model files (15+ GB total) and builds a large container image with system dependencies, ComfyUI, and 25+ custom nodes.
+### "URL loads for hours" after deploy
 
-**Fix:** Be patient — the build is linear. Pre-download models first (`modal run comfyapp.py`) so the deploy step only downloads what's missing. Consider Modal regions geographically close to you for faster download speeds.
+This was a known bug (fixed). The `ui()` function now health-polls ComfyUI until it answers HTTP
+before returning, so Modal never publishes the URL prematurely. If you still see it, the container
+may be downloading models on a fresh volume — wait for the first cold start to finish.
 
-### ComfyUI loads but workflows fail with "model not found"
+### ComfyUI loads but a workflow shows "model not found"
 
-**Symptom:** The ComfyUI interface loads, but when you queue a workflow, you see errors like `Model not found: ...` or missing checkpoint errors.
+You likely enabled a pack whose model repo path is wrong (pack model paths are best-effort). The
+model failed to download (`required: false`, so it warned but didn't abort). Check the deploy log
+for `FAIL:` lines, find the right repo/path, and update `apps/server/src/modal/packs.ts`.
 
-**Cause:** The `wan-models` volume might be empty or models were not linked properly. Some workflows expect models in specific subdirectory paths (e.g., `diffusion_models/Wan22Animate/`).
+## Next steps
 
-**Fix:** Run the pre-download command to force a full download pass:
-```bash
-modal run comfyapp.py
-```
-Then redeploy:
-```bash
-modal deploy comfyapp.py
-```
-
-## Next Steps
-
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Learn about the project structure, components, and how the Modal deployment works.
-- **[CONFIGURATION.md](CONFIGURATION.md)** — Configure GPU type, memory, custom nodes, model downloads, and environment variables.
-- **[README.md](../README.md)** — Project overview, workflow descriptions, and high-level details.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the local app + Modal deploy fit together.
+- **[CONFIGURATION.md](CONFIGURATION.md)** — every tunable, template placeholders, pack definitions.
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — running locally, building, linting.
