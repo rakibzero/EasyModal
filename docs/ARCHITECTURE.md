@@ -2,18 +2,19 @@
 
 ## System Overview
 
-EasyModal is a **local orchestrator + web UI** that deploys [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
-on [Modal](https://modal.com) serverless GPUs. The user interacts only with a browser-based UI
-served from their own machine; compute runs on their own Modal account.
+EasyModal is a **local orchestrator + web UI** that deploys one of two apps onto
+[Modal](https://modal.com) serverless GPUs: [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+(image/video generation) or [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit) (LoRA
+fine-tuning). The user picks the target in Configure; compute runs on their own Modal account.
 
 The system has two halves:
 
 1. **Local app** (this repo) — an npm-workspaces monorepo: a React/Vite frontend and a Fastify
-   backend. The backend renders a Python template, shells out to the `modal` CLI, and streams
-   progress back over SSE.
-2. **Deployed ComfyUI** (on Modal) — built from the rendered `comfyapp.py`. A custom Modal Image
-   bundles ComfyUI + selected custom nodes + workflow JSONs; a `wan-models` Volume persists
-   models and user state across cold starts.
+   backend. The backend renders one of two Python templates, shells out to the `modal` CLI, and
+   streams progress back over SSE.
+2. **Deployed app** (on Modal) — built from the rendered `comfyapp.py` or `aitoolkit_app.py`. A
+   custom Modal Image bundles the app + (for ComfyUI) selected custom nodes + workflow JSONs;
+   a Modal Volume persists models and user state across cold starts.
 
 **Architectural style**: local orchestrator driving serverless container deploys, with a
 persistent-volume-backed symlink layer for state that survives container recycling.
@@ -29,35 +30,38 @@ graph TD
         CS["~/.easymodal/<br/>config.json, instances.json<br/>(0600 plaintext key store)"]
     end
 
-    subgraph "Render + deploy"
-        T["comfyapp.py.tpl<br/>+ packs.ts"]
-        R["renderTemplate()<br/>ast.parse validation"]
+    subgraph "Render + deploy (target-dispatched)"
+        TC["comfyapp.py.tpl<br/>+ packs.ts"]
+        TA["aitoolkit_app.py.tpl<br/>+ aitoolkit-config/"]
+        R["renderTemplate(cfg)<br/>dispatches by cfg.target<br/>ast.parse validation"]
         MCLI["modal CLI<br/>(deploy / run / app list)"]
     end
 
-    subgraph "Modal cloud (per account)"
-        APP["modal.App<br/>wan22-animate"]
-        IMG["modal.Image<br/>Debian + ComfyUI + nodes + workflows"]
-        UI["@modal.web_server :8188"]
-        DL["download_all_models<br/>(Prefetch)"]
-        VOL["modal.Volume<br/>wan-models"]
-        RESET["reset_custom_nodes /<br/>wipe_account_dirs"]
+    subgraph "Modal cloud — ComfyUI (target=comfyui)"
+        APPC["modal.App<br/>(appName)"]
+        IMGC["Image: ComfyUI + nodes + workflows"]
+        UIC["@modal.web_server :8188"]
+        VLC["Volume: wan-models<br/>+ reset_custom_nodes / wipe_account_dirs"]
+    end
+
+    subgraph "Modal cloud — AI Toolkit (target=ai-toolkit)"
+        APPA["modal.App<br/>(appName)"]
+        IMGA["Image: ai-toolkit + Next.js UI + configs"]
+        UIA["@modal.web_server :8675"]
+        VLA["Volume: ai-toolkit-data<br/>atomic-save + periodic commit"]
     end
 
     U -->|HTTP /api| W
     W -->|proxy /api| S
     S -->|read/write creds| CS
     S -->|render| R
-    T --> R
-    R -->|comfyapp.py| MCLI
-    MCLI -->|deploy| APP
-    APP --- IMG
-    APP --- UI
-    APP --- DL
-    APP --- RESET
-    UI -.->|mount| VOL
-    DL -.->|mount| VOL
-    RESET -.->|mount| VOL
+    TC --> R
+    TA --> R
+    R -->|target=ai-toolkit: aitoolkit_app.py<br/>else comfyapp.py| MCLI
+    MCLI -->|deploy| APPC
+    MCLI -->|deploy| APPA
+    APPC --- IMGC --- UIC --- VLC
+    APPA --- IMGA --- UIA --- VLA
     S -->|stream stdout| U
 ```
 
@@ -101,17 +105,21 @@ graph TD
 
 #### Modal layer (`src/modal/`)
 
-- **`cli.ts`** — the rendering core.
-  - `renderTemplate(cfg)` reads `templates/comfyapp.py.tpl` and substitutes placeholders:
-    `{{APP_NAME}}`, `{{GPU}}`, `{{MAX_INPUTS}}`, `{{TIMEOUT_SECONDS}}`, `{{MEMORY_MB}}`, `{{CPU}}`,
-    `{{NODE_CLONES}}`, `{{EXTRA_MODELS}}`, `{{WORKFLOW_BUNDLE}}`.
-  - `renderNodeClones(nodes)` → `.run_commands("cd …/custom_nodes && git clone URL[ && cd X && pip install -r requirements.txt]")` per node.
-  - `renderExtraModels(models)` → Python tuples appended to the `MODELS` list.
+- **`cli.ts`** — the rendering core. **Dispatches by `cfg.target`.**
+  - `renderTemplate(cfg)` → `renderComfyTemplate(cfg)` (default) or `renderAiToolkitTemplate(cfg)`.
+  - ComfyUI path reads `templates/comfyapp.py.tpl`, substitutes `{{APP_NAME}}`, `{{GPU}}`,
+    `{{MAX_INPUTS}}`, `{{TIMEOUT_SECONDS}}`, `{{MEMORY_MB}}`, `{{CPU}}`, `{{NODE_CLONES}}`,
+    `{{EXTRA_MODELS}}`, `{{WORKFLOW_BUNDLE}}`.
+  - AI Toolkit path reads `templates/aitoolkit_app.py.tpl`, substitutes `{{APP_NAME}}`, `{{GPU}}`,
+    `{{MEMORY_MB}}`, `{{CPU}}`, `{{CONFIG_BUNDLE}}`.
+  - `renderNodeClones(nodes)` → `.run_commands("cd …/custom_nodes && git clone URL[ && cd X && pip install -r requirements.txt]")` per node (ComfyUI).
+  - `renderExtraModels(models)` → Python tuples appended to the `MODELS` list (ComfyUI).
   - `renderWorkflowBundle(workflows)` → base64-inlines each workflow JSON into
-    `.run_commands("… | base64 -d > …/user/default/workflows/<file>")` (Modal Image can't `ADD_CONTEXT`
-    local files without a Dockerfile, so content is inlined).
-  - `deployRenderedTemplate(cfg, cb)` writes the rendered file to a temp dir and spawns
-    `modal deploy comfyapp.py`, streaming stdout/stderr line-by-line to callbacks.
+    `.run_commands("… | base64 -d > …/user/default/workflows/<file>")` (ComfyUI).
+  - `renderAiToolkitConfigBundle()` → base64-inlines each YAML from `templates/aitoolkit-config/`
+    into `/root/ai-toolkit/config/` (AI Toolkit).
+  - `deployRenderedTemplate(cfg, cb)` writes `comfyapp.py` or `aitoolkit_app.py` to a temp dir
+    and spawns `modal deploy`, streaming stdout/stderr line-by-line to callbacks.
 - **`packs.ts`** — pack definitions.
   - `CORE_NODES`: 25 always-installed custom nodes (VideoHelperSuite, WanVideoWrapper, KJNodes,
     ComfyUI-Manager, Impact-Pack, SCAIL-Pose, WanAnimatePlus, …).
@@ -225,19 +233,51 @@ hours" symptom — every cold container re-statted 30+ models while Modal's prox
 request). It only re-creates the model-dir symlinks (fast, idempotent) and health-polls ComfyUI
 until it returns HTTP 200 before returning — so Modal never marks the container "ready" prematurely.
 
+## The deployed AI Toolkit app (`aitoolkit_app.py.tpl`)
+
+A separate template based on the original `aitoolkit_app.py` — not a ComfyUI node. Rendered when
+`cfg.target === 'ai-toolkit'`. Key differences from the ComfyUI template:
+
+- **Volume:** `ai-toolkit-data` (vs `wan-models`), mounted at `/data`.
+- **Port:** 8675 (Next.js UI) vs 8188.
+- **Secrets:** `huggingface` + `ai-toolkit-auth` (the latter auto-created by
+  `ensureAiToolkitAuthSecret` before deploy; the token is logged to the SSE stream).
+- **Bundled configs:** `templates/aitoolkit-config/*.yml` are base64-inlined into
+  `/root/ai-toolkit/config/` via `{{CONFIG_BUNDLE}}`.
+- **Safety patches:** `apply_safety_patches()` runs at web-server startup, before any training code:
+  atomic safetensors writes (temp + `os.replace`), atomic `Network.save_weights` /
+  `LoRANetwork.save_weights`, and a `BaseSDTrainProcess.save` hook that commits the volume after
+  each training save. A background thread also commits every 30s. Together these make training
+  resumable across container preemption.
+- **Persistence:** `output`, `datasets`, and the Prisma job-queue SQLite DB are symlinked onto
+  `/data`, so training jobs and datasets survive cold starts.
+
+| Function | Purpose | GPU |
+|----------|---------|-----|
+| `download_models_remote()` | Prefetch LTX-2.3 + Gemma3 encoder (~71 GB) to the volume. | none (CPU) |
+| `ui()` | `@modal.web_server(8675)`. Applies patches, symlinks dirs, `prisma db push`, model cache check, launches Next.js UI + cron worker via `concurrently`. | `{{GPU}}` |
+| `main()` (local_entrypoint) | Runs `download_models_remote.spawn()` — used by `modal run aitoolkit_app.py`. | — |
+
+> **Not yet target-supported:** `reset_custom_nodes` and `wipe_account_dirs` exist only in
+> `comfyapp.py.tpl`. The reset-nodes and switch-account routes return a 400 "ComfyUI-only / not
+> yet supported" for AI Toolkit instances rather than crashing a `modal run`.
+
 ## Data flow: a deploy
 
-1. User picks account + config + packs, clicks Deploy → `POST /api/instances/deploy`.
-2. Server `activateAccountProfile(accountId, …)` so the right account is targeted.
+1. User picks target + account + config (+ packs for ComfyUI), clicks Deploy → `POST /api/instances/deploy`.
+2. Server `activateAccountProfile(accountId, …)` so the right account is targeted. If target is
+   ai-toolkit, `ensureAiToolkitAuthSecret()` creates the auth secret and logs the token.
 3. `deployRenderedTemplate(cfg, callbacks)`:
-   - Renders the template → temp `comfyapp.py`.
-   - Spawns `modal deploy comfyapp.py`.
-   - Each stdout/stderr line → `classifyLine()` → milestone → SSE event → UI.
+   - Renders the matching template → temp `comfyapp.py` or `aitoolkit_app.py`.
+   - Spawns `modal deploy`.
+   - Each stdout/stderr line → `classifyLine()` → milestone → SSE event → UI. The classifier
+     recognizes both ComfyUI (`HARD:`/`ComfyUI`/`8188`) and AI Toolkit (`DOWNLOADED:`/`[UI]`/
+     `[DB]`/`Starting Next.js`/`8675`) log patterns.
    - On a `*.modal.run` URL in the output, captured into the instance record.
 4. Modal builds the image (or reuses cached layers), starts the `ui` function.
-5. `ui()` mounts the volume, symlinks dirs, spawns ComfyUI, health-polls, returns.
+5. `ui()` mounts the volume, symlinks dirs, spawns the app, health-polls/commits, returns.
 6. Modal publishes the HTTPS endpoint; the server captures the real URL (never guessed).
-7. **Launch** step shows the URL; user clicks **Open ComfyUI** 🚀.
+7. **Launch** step shows the URL (with the target label); user clicks **Open** 🚀.
 
 ## Security model
 

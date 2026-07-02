@@ -2,32 +2,44 @@
 
 > **Modal is powerful but miserable to set up. This is the missing UI.**
 
-Deploy [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on [Modal](https://modal.com) by
-pasting your API keys and clicking one button. No terminal, no Python, no fighting the CLI.
-Pick your GPU, RAM, and CPU; choose which workflow packs to bundle; deploy to any of several
-Modal accounts — all from a local web UI.
+Deploy **ComfyUI** (image/video generation) or **[AI Toolkit](https://github.com/ostris/ai-toolkit)**
+(LoRA fine-tuning) on [Modal](https://modal.com) by pasting your API keys and clicking one button.
+No terminal, no Python, no fighting the CLI. Pick your target, GPU, RAM, and CPU; choose which
+workflow packs to bundle; deploy to any of several Modal accounts — all from a local web UI.
 
-This is an open-source project: anyone should be able to run ComfyUI on cloud GPUs without
+This is an open-source project: anyone should be able to run serious cloud GPU tooling without
 the suffering that Modal's server setup normally demands.
 
 ## Status
 
-✅ **Functional.** Real deploys verified end-to-end — ComfyUI loads live on Modal with all
-bundled custom nodes, the Manager, and workflow templates.
+✅ **Functional.** Real ComfyUI deploys verified end-to-end — ComfyUI loads live on Modal with
+all bundled custom nodes, the Manager, and workflow templates. AI Toolkit target ships validated
+(template renders + ast.parse clean) but is not yet end-to-end deployed.
+
+## Two deploy targets
+
+| Target | What it is | Port | Volume |
+|--------|-----------|------|--------|
+| **ComfyUI** | Node-based image/video generation UI — Wan2.2, SCAIL-2, image editing, upscaling. | 8188 | `wan-models` |
+| **AI Toolkit** | ostris/ai-toolkit — fine-tune LoRAs for Flux/Wan/LTX video models via web UI. | 8675 | `ai-toolkit-data` |
+
+Pick which one in the **Configure** step. Both share the same hardware selectors
+(GPU/RAM/vCPU/concurrency/timeout/app-name). Compute stays on **your** Modal account.
 
 ## What it does
 
 1. Run one command (`npm start`).
 2. Paste your **Modal token** + **HuggingFace token** (add as many Modal accounts as you like).
-3. **Configure** — pick GPU (A100-80GB, H100, L40S, …), RAM, vCPUs, concurrency, timeout, and
-   which **workflow packs** to bundle (Wan2.2 Animation, Image Editing, Upscaling).
-4. Click **Deploy** — the app renders a ComfyUI-on-Modal template, runs `modal deploy`, and
-   streams live progress (image build → model download → ComfyUI startup → URL ready).
-5. Click **Open ComfyUI** 🚀 — you're animating.
+3. **Configure** — pick the deploy target (ComfyUI or AI Toolkit), GPU (A100-80GB, H100, L40S, …),
+   RAM, vCPUs, concurrency, timeout. For ComfyUI, also pick **workflow packs** (Wan2.2 Animation,
+   Image Editing, Upscaling).
+4. Click **Deploy** — the app renders the right template, runs `modal deploy`, and streams live
+   progress (image build → model download → server startup → URL ready).
+5. Click **Open** 🚀 — you're generating (ComfyUI) or training (AI Toolkit).
 
-Compute stays on **your** Modal account. This app is a local orchestrator + UI; it never hosts
-compute itself. Installed custom nodes, uploaded inputs, generated outputs, and saved workflows
-**persist across container restarts** via a Modal Volume.
+Installed ComfyUI custom nodes, uploaded inputs, generated outputs, and saved workflows
+**persist across container restarts** via a Modal Volume. AI Toolkit persists its output,
+datasets, and training-job DB the same way.
 
 ## Quickstart
 
@@ -39,8 +51,8 @@ npm start
 ```
 
 Your browser opens automatically. Click through **Setup → Keys → Configure → Workflows → Deploy → Launch**:
-paste your Modal + HuggingFace tokens, choose your hardware + packs, click **Deploy ComfyUI to Modal**,
-then **Open ComfyUI** 🚀.
+paste your Modal + HuggingFace tokens, choose your target + hardware (+ packs for ComfyUI),
+click **Deploy**, then **Open** 🚀.
 
 > Requires Node 18+ and the `modal` CLI installed (`pip install modal && modal setup`).
 
@@ -48,13 +60,14 @@ then **Open ComfyUI** 🚀.
 
 | Feature | What it means |
 |---------|---------------|
-| **Hardware config** | Pick GPU (7 options w/ VRAM guardrails), RAM (8–256 GB), vCPU (2–32), max concurrency (1–4), idle timeout (15–240 min), app name. |
-| **Workflow packs** | Toggle bundles of custom nodes + models: **Wan2.2 Animation** (core, always on), **Image Editing** (Flux/Qwen/Ernie), **Upscaling** (SUPIR/SeedVR). |
-| **Bundled workflows** | 28 workflow JSONs ship in the image and appear in ComfyUI's workflow menu, organized by pack. |
+| **Two deploy targets** | Deploy **ComfyUI** (generation) or **AI Toolkit** (LoRA training) — pick in Configure. Both fully hardware-configurable. |
+| **Hardware config** | Pick GPU (7 options w/ VRAM guardrails), RAM (8–256 GB), vCPU (2–32), max concurrency (1–4), idle timeout (15–240 min), app name. Applies to both targets. |
+| **Workflow packs** (ComfyUI) | Toggle bundles of custom nodes + models: **Wan2.2 Animation** (core, always on), **Image Editing** (Flux/Qwen/Ernie), **Upscaling** (SUPIR/SeedVR). |
+| **Bundled configs** | ComfyUI: 28 workflow JSONs in the image. AI Toolkit: LTX-2.3 LoRA training config bundled. |
 | **Multiple accounts** | Add unlimited Modal accounts, deploy to any of them. One account active at a time. |
-| **Persistence** | `custom_nodes`, `input`, `output`, `user` dirs are symlinked onto a Modal Volume. Manager installs, uploads, outputs, and saved workflows survive cold starts. |
-| **Reset / switch** | "Reset custom_nodes" wipes Manager-installed nodes back to baseline. Account switch wipes volume dirs for a clean handover. |
-| **Live deploy logs** | Server-Sent Events stream `modal deploy` output to the UI with milestone tracking. |
+| **Persistence** | ComfyUI: `custom_nodes`/`input`/`output`/`user` symlinked to a volume. AI Toolkit: `output`/`datasets`/`db` + training checkpoints persisted. All survive cold starts. |
+| **Reset / switch** (ComfyUI) | "Reset custom_nodes" wipes Manager-installed nodes back to baseline. Account switch wipes volume dirs for a clean handover. (AI Toolkit switch not yet supported.) |
+| **Live deploy logs** | Server-Sent Events stream `modal deploy` output to the UI with milestone tracking (both targets). |
 
 ## Development
 
@@ -74,17 +87,19 @@ npm run typecheck # tsc -b
 ## Project layout
 
 ```
-apps/web/                    React + Vite + TypeScript + Tailwind  (the UI)
-  src/pages/                 Setup, Keys, Configure, Workflows, Deploy, Launch
-  src/store/appStore.ts      Zustand store w/ localStorage persistence
-apps/server/                 Fastify + TypeScript                  (local backend)
-  src/modal/cli.ts           Renders comfyapp.py.tpl, runs modal deploy
-  src/modal/packs.ts         Core nodes + per-pack nodes/models definitions
-  src/accounts/modal.ts      Modal token validation, profile activation
-  src/routes/                instances, accounts, workflows, events (SSE)
-  templates/comfyapp.py.tpl  THE template — rendered per deploy
-  workflows/                 wan22/ image-edit/ upscaling/ (bundled JSONs)
-packages/shared/             Shared TS types (Account, Instance, DeployConfig…)
+apps/web/                       React + Vite + TypeScript + Tailwind  (the UI)
+  src/pages/                    Setup, Keys, Configure, Workflows, Deploy, Launch
+  src/store/appStore.ts         Zustand store w/ localStorage persistence
+apps/server/                    Fastify + TypeScript                  (local backend)
+  src/modal/cli.ts              Renders the right template per target, runs modal deploy
+  src/modal/packs.ts            Core nodes + per-pack nodes/models (ComfyUI)
+  src/accounts/modal.ts         Modal token validation, profile activation, secrets
+  src/routes/                   instances, accounts, workflows, events (SSE)
+  templates/comfyapp.py.tpl     ComfyUI template — rendered per deploy
+  templates/aitoolkit_app.py.tpl  AI Toolkit (ostris/ai-toolkit) template
+  templates/aitoolkit-config/   Bundled training configs (base64-inlined into the image)
+  workflows/                    wan22/ image-edit/ upscaling/ (ComfyUI workflow JSONs)
+packages/shared/                Shared TS types (Account, Instance, DeployConfig, DeployTarget…)
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design,

@@ -50,14 +50,18 @@ You can add multiple accounts and deploy to any of them. **One account is active
 
 ## 4. Configure
 
-Pick your hardware and which workflow packs to bundle:
+First pick **what to deploy**, then your hardware:
 
-- **App name** — becomes the Modal app name.
+- **Target** — **ComfyUI** (image/video generation) or **AI Toolkit** (LoRA fine-tuning via
+  [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit)). This drives which template is
+  rendered and which Modal volume/secrets are used.
+- **App name** — becomes the Modal app name (defaults to `easymodal` for ComfyUI,
+  `ai-toolkit-finetune` for AI Toolkit).
 - **GPU** — A100-80GB (default), H100, H200, L40S, L4, T4. The UI warns if you pick a GPU too small
-  for Wan2.2 (needs ≥40 GB VRAM).
+  for Wan2.2 (needs ≥40 GB VRAM). Applies to both targets.
 - **RAM** (8–256 GB), **vCPU** (2–32), **Max concurrent inputs** (1–4), **Idle timeout** (15–240 min).
-- **Workflow packs** — `wan22` (always on), plus optional `image-edit` and `upscaling`. Each pack
-  adds custom nodes + models to the image.
+- **Workflow packs** (ComfyUI only) — `wan22` (always on), plus optional `image-edit` and
+  `upscaling`. Each pack adds custom nodes + models to the image. Hidden when target=AI Toolkit.
 
 These choices persist across sessions (localStorage) and are sent with every deploy.
 
@@ -69,52 +73,67 @@ share. They're already baked into the image on deploy, so no action needed here 
 ## 6. Deploy
 
 1. Pick the account to deploy to.
-2. Review the config summary card.
-3. Click **Deploy ComfyUI to Modal**.
+2. Review the config summary card (it shows the target, hardware, and — for ComfyUI — packs).
+3. Click **Deploy** (the button label reflects your target: "Deploy ComfyUI to Modal" or
+   "Deploy AI Toolkit to Modal").
 
-The app renders `comfyapp.py.tpl` with your choices, validates it as Python, then runs `modal deploy`.
-You'll see live, streamed progress with milestones:
+The app renders the matching template (`comfyapp.py.tpl` or `aitoolkit_app.py.tpl`), validates it
+as Python, then runs `modal deploy`. For AI Toolkit, an `ai-toolkit-auth` secret is auto-created
+first and the access token is logged. You'll see live, streamed progress with milestones:
 
-- **Building container image** — Debian + ComfyUI + your selected custom nodes + bundled workflows.
-  First build ~5–10 min.
-- **Downloading models** — ~40 GB of Wan2.2 models into the `wan-models` volume. **First deploy
-  only** — subsequent deploys skip this (volume cache). 15–30 min on first run.
-- **Starting ComfyUI** — symlinks models + persistent dirs onto the volume, spawns ComfyUI,
-  health-polls until it answers HTTP.
+- **Building container image** — first build ~5–10 min (ComfyUI) or ~10–15 min (AI Toolkit, which
+  also builds the Next.js UI).
+- **Downloading models** — ComfyUI: ~40 GB of Wan2.2 models into `wan-models`. AI Toolkit: ~71 GB
+  (LTX-2.3 + Gemma3 encoder) into `ai-toolkit-data`. **First deploy only** — subsequent deploys
+  skip this (volume cache).
+- **Starting app server** — ComfyUI: symlinks + spawns ComfyUI + health-polls. AI Toolkit: Prisma
+  DB push + model cache check + Next.js on port 8675.
 - **Deployment ready** — the real `*.modal.run` URL is captured (never guessed).
 
 ## 7. Launch
 
-Click **🚀 Open ComfyUI**. You're in. Load a workflow from the menu, drop in an image, and animate.
+Click **🚀 Open**. You're in — load a workflow (ComfyUI) or start a training job (AI Toolkit).
+
+> **AI Toolkit auth:** the UI is gated by `AI_TOOLKIT_AUTH`. The auto-generated token is printed
+> in the deploy log stream when you first deploy AI Toolkit — copy it. You'll need it (along with
+> Modal proxy auth headers) to access the URL.
 
 ### What persists across restarts
 
-Because `custom_nodes`, `input`, `output`, and `user` are symlinked onto the `wan-models` volume:
+**ComfyUI** — `custom_nodes`, `input`, `output`, and `user` are symlinked onto the `wan-models`
+volume:
 
 - **ComfyUI Manager installs** survive container recycles — install once, keep forever.
 - **Uploaded inputs** (your source images/clips) stay.
 - **Generated outputs** stay.
 - **Saved workflows + settings** stay.
 
+**AI Toolkit** — `output`, `datasets`, and the Prisma job-queue DB are symlinked onto the
+`ai-toolkit-data` volume, and the safety patches (atomic saves + periodic volume commits) keep
+training checkpoints resumable across container preemption.
+
 The container can scale to zero and wake back up with everything intact.
 
 ## Managing instances (Launch step)
 
-Each card on the Launch step represents a deployed instance:
+Each card on the Launch step represents a deployed instance. The card shows the target
+(ComfyUI or AI Toolkit), account, GPU, and a live status dot.
 
 - **Refresh** — re-checks status via `modal app list`.
 - **Copy link** — copies the `*.modal.run` URL.
-- **Reset custom_nodes** — wipes Manager-installed nodes back to the image baseline. Use this if a
-  bad install breaks ComfyUI. Models/uploads/outputs are untouched.
+- **Reset custom_nodes** *(ComfyUI only)* — wipes Manager-installed nodes back to the image
+  baseline. Hidden for AI Toolkit instances (no custom_nodes). Use this if a bad install breaks
+  ComfyUI. Models/uploads/outputs are untouched.
 - **Redeploy** — go back to Deploy with the same config.
 - **Remove** — removes the instance from the local list (does **not** delete the Modal app; run
   `modal app stop <name>` for that).
 
-### Switching accounts
+### Switching accounts *(ComfyUI only)*
 
-Use **Switch account** to hand off to another Modal account. It wipes `custom_nodes`/`input`/
-`output`/`user` on the volume so the next account starts clean (models are kept — they're large and
-account-independent), then activates the new account's token.
+Use **Switch account** to hand off a ComfyUI instance to another Modal account. It wipes
+`custom_nodes`/`input`/`output`/`user` on the volume so the next account starts clean (models are
+kept — they're large and account-independent), then activates the new account's token. Account
+switching for AI Toolkit instances is not yet supported.
 
 ## Common issues
 

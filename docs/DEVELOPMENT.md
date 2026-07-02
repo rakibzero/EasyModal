@@ -106,7 +106,9 @@ Drop a `.json` into `apps/server/workflows/<pack>/`. It's automatically picked u
 1. Add the field to `DeployConfig` in `apps/server/src/modal/cli.ts` + `DEFAULT_DEPLOY_CONFIG`.
 2. Add it to `DeployConfig` in `packages/shared/src/types.ts` (single source for both sides).
 3. Add a UI control in `apps/web/src/pages/ConfigurePage.tsx` and to `DEFAULT_CONFIG` in `appStore.ts`.
-4. Add the placeholder to `comfyapp.py.tpl` if it needs to reach the container.
+4. Add the placeholder to `comfyapp.py.tpl` and/or `aitoolkit_app.py.tpl` if it needs to reach the
+   container. Update `renderComfyTemplate` / `renderAiToolkitTemplate` in `cli.ts` to substitute it.
+   Note: AI Toolkit uses a separate render path — see `renderAiToolkitTemplate`.
 
 ### Add a route
 
@@ -129,14 +131,17 @@ The app's deploy path is `modal deploy comfyapp.py` in a temp dir. To test the r
 yourself without the UI:
 
 ```bash
-# from apps/server
+# from apps/server — render + validate each target
 node -e 'const {renderTemplate}=require("./dist/modal/cli.js");\
-  require("fs").writeFileSync("/tmp/x.py",\
-  renderTemplate({appName:"wan22-test",gpu:"A100-80GB",maxInputs:2,\
-  timeoutSeconds:1800,memoryMb:32768,cpu:8,packs:["wan22"]}))'
-python3 -c "import ast; ast.parse(open('/tmp/x.py').read()); print('ok')"
-MODAL_PROFILE=<profile> modal deploy /tmp/x.py
-MODAL_PROFILE=<profile> modal app stop wan22-test --yes   # when done
+  const fs=require("fs");\
+  fs.writeFileSync("/tmp/comfy.py", renderTemplate({target:"comfyui",appName:"em-test",gpu:"A100-80GB",\
+    maxInputs:2,timeoutSeconds:1800,memoryMb:32768,cpu:8,packs:["wan22"]}));\
+  fs.writeFileSync("/tmp/aitk.py", renderTemplate({target:"ai-toolkit",appName:"aitk-test",gpu:"H100",\
+    maxInputs:10,timeoutSeconds:86400,memoryMb:65536,cpu:16}));'
+python3 -c "import ast; ast.parse(open('/tmp/comfy.py').read()); print('comfy ok')"
+python3 -c "import ast; ast.parse(open('/tmp/aitk.py').read()); print('aitk ok')"
+MODAL_PROFILE=<profile> modal deploy /tmp/comfy.py    # or /tmp/aitk.py
+MODAL_PROFILE=<profile> modal app stop em-test --yes   # when done
 ```
 
 > Real deploys spend Modal credits and take 15–30 min on a fresh volume. For plumbing-only checks,

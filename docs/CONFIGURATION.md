@@ -1,10 +1,25 @@
 # Configuration
 
-EasyModal is configured through the **Configure** step in the web UI. The chosen values
-are rendered into `apps/server/templates/comfyapp.py.tpl` at deploy time, so there are no config
-files to hand-edit for a deploy — just pick options in the UI and click Deploy.
+EasyModal is configured through the **Configure** step in the web UI. The chosen values are
+rendered into one of two templates at deploy time — `comfyapp.py.tpl` (ComfyUI) or
+`aitoolkit_app.py.tpl` (AI Toolkit) — so there are no config files to hand-edit for a deploy.
+Just pick options in the UI and click Deploy.
 
 This document covers every tunable, where it lives, and how to change the defaults.
+
+## Deploy target (which app gets deployed)
+
+The first Configure choice is **"What do you want to deploy?"** — this drives which template
+is rendered and which Modal volume/secrets are used.
+
+| Target | Template | Volume | Port | Extra secrets |
+|--------|----------|--------|------|---------------|
+| **ComfyUI** (default) | `comfyapp.py.tpl` | `wan-models` | 8188 | `huggingface` |
+| **AI Toolkit** | `aitoolkit_app.py.tpl` | `ai-toolkit-data` | 8675 | `huggingface` + `ai-toolkit-auth` (auto-generated) |
+
+`ai-toolkit-auth` is auto-created on first AI Toolkit deploy if you haven't set it
+(`ensureAiToolkitAuthSecret` in `accounts/modal.ts`); the generated token is logged to the
+deploy stream so you can access the gated UI.
 
 ## At-a-glance: deploy-time options (the Configure step)
 
@@ -13,15 +28,16 @@ All of these are persisted to `localStorage` under the key `easymodal-config` an
 `apps/web/src/store/appStore.ts` (`DEFAULT_CONFIG`) and `apps/server/src/modal/cli.ts`
 (`DEFAULT_DEPLOY_CONFIG`).
 
-| Option | Default | Choices | Notes |
-|--------|---------|---------|-------|
-| **App name** | `wan22-animate` | any slug | Becomes the Modal app name + part of the URL. |
-| **GPU** | `A100-80GB` | A100-80GB, A100-40GB, H100, H200, L40S, L4, T4 | VRAM guardrail warns when a non-heavy-workload GPU is picked (Wan2.2 needs ≥40 GB). |
-| **RAM** | 32 GB | 8, 16, 32, 64, 128, 256 GB | |
-| **vCPU** | 8 | 2, 4, 8, 16, 32 | |
-| **Max concurrent inputs** | 2 | 1, 2, 3, 4 | Each Wan2.2 inference uses 30–50 GB VRAM; >1 risks OOM on a single GPU. |
-| **Idle timeout** | 30 min | 15, 30, 60, 120, 240 min | How long the container stays warm before scaling to zero. |
-| **Workflow packs** | `wan22` | `wan22` (locked on), `image-edit`, `upscaling` | Add custom nodes + models per pack. |
+| Option | Default | Applies to | Choices | Notes |
+|--------|---------|-----------|---------|-------|
+| **Target** | `comfyui` | both | `comfyui`, `ai-toolkit` | Picks the template. Swaps the app-name default. |
+| **App name** | `easymodal` (comfyui) / `ai-toolkit-finetune` (ai-toolkit) | both | any slug | Becomes the Modal app name + part of the URL. |
+| **GPU** | `A100-80GB` | both | A100-80GB, A100-40GB, H100, H200, L40S, L4, T4 | VRAM guardrail warns when a non-heavy-workload GPU is picked (Wan2.2 needs ≥40 GB). |
+| **RAM** | 32 GB | both | 8, 16, 32, 64, 128, 256 GB | |
+| **vCPU** | 8 | both | 2, 4, 8, 16, 32 | |
+| **Max concurrent inputs** | 2 | comfyui | 1, 2, 3, 4 | Each Wan2.2 inference uses 30–50 GB VRAM; >1 risks OOM on a single GPU. (AI Toolkit overrides to 10.) |
+| **Idle timeout** | 30 min | comfyui | 15, 30, 60, 120, 240 min | How long the container stays warm before scaling to zero. |
+| **Workflow packs** | `wan22` | comfyui only | `wan22` (locked on), `image-edit`, `upscaling` | Add custom nodes + models per pack. Hidden when target=ai-toolkit. |
 
 ### GPU options reference
 
@@ -85,7 +101,9 @@ step (`GET /api/workflows`) with per-file download.
 
 ## Template placeholders
 
-`apps/server/templates/comfyapp.py.tpl` is rendered by `renderTemplate(cfg)` in `cli.ts`. Placeholders:
+`renderTemplate(cfg)` in `cli.ts` dispatches by `cfg.target` and renders the matching template.
+
+### ComfyUI — `apps/server/templates/comfyapp.py.tpl`
 
 | Placeholder | Replaced with | Rendered by |
 |-------------|---------------|-------------|
@@ -98,6 +116,21 @@ step (`GET /api/workflows`) with per-file download.
 | `{{NODE_CLONES}}` | one `.run_commands(...)` per node | `renderNodeClones(resolveNodes(packs))` |
 | `{{EXTRA_MODELS}}` | Python tuples appended to `MODELS` | `renderExtraModels(resolveModels(packs))` |
 | `{{WORKFLOW_BUNDLE}}` | one `.run_commands(...)` per workflow JSON (base64) | `renderWorkflowBundle(collectWorkflows(packs))` |
+
+### AI Toolkit — `apps/server/templates/aitoolkit_app.py.tpl`
+
+| Placeholder | Replaced with | Rendered by |
+|-------------|---------------|-------------|
+| `{{APP_NAME}}` | app name string | direct `.replaceAll` |
+| `{{GPU}}` | GPU type string | direct |
+| `{{MEMORY_MB}}` | int | direct |
+| `{{CPU}}` | int | direct |
+| `{{CONFIG_BUNDLE}}` | one `.run_commands(...)` per bundled training YAML (base64) | `renderAiToolkitConfigBundle()` |
+
+The AI Toolkit template has no packs/nodes/workflows — it's a standalone app based on the
+original `aitoolkit_app.py` (atomic-save patches for resumable training, periodic volume
+commits, Prisma SQLite DB persistence, LTX-2.3 video LoRA). Bundled training configs live in
+`apps/server/templates/aitoolkit-config/` and land at `/root/ai-toolkit/config/` in the image.
 
 > **Gotcha (learned the hard way):** placeholders that expand to multi-line code must sit at
 > column 0 in the template (not indented), and must never appear inside a `#` comment line —
