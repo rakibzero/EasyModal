@@ -20,6 +20,7 @@ interface InstanceInfo {
     memoryMb?: number;
     cpu?: number;
     packs?: string[];
+    target?: 'comfyui' | 'ai-toolkit';
   };
 }
 
@@ -128,7 +129,7 @@ export function LaunchPage() {
                     <StatusDot status={status} label={STATUS_LABEL[status]} />
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    {accountLabel(inst.accountId)} · {inst.config.gpu} · max {inst.config.maxInputs}
+                    {accountLabel(inst.accountId)} · {inst.config.target === 'ai-toolkit' ? 'AI Toolkit' : 'ComfyUI'} · {inst.config.gpu} · max {inst.config.maxInputs}
                     {inst.lastDeployedAt && ` · ${new Date(inst.lastDeployedAt).toLocaleString()}`}
                   </p>
                 </div>
@@ -174,13 +175,15 @@ export function LaunchPage() {
                     Copy link
                   </button>
                 )}
-                <button
-                  onClick={() => resetNodes(inst)}
-                  disabled={resetting === inst.id}
-                  className="rounded-lg border border-amber-900 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
-                >
-                  {resetting === inst.id ? 'Resetting…' : 'Reset custom_nodes'}
-                </button>
+                {inst.config.target !== 'ai-toolkit' && (
+                  <button
+                    onClick={() => resetNodes(inst)}
+                    disabled={resetting === inst.id}
+                    className="rounded-lg border border-amber-900 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
+                  >
+                    {resetting === inst.id ? 'Resetting…' : 'Reset custom_nodes'}
+                  </button>
+                )}
                 <button
                   onClick={() => setStep('deploy')}
                   className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"

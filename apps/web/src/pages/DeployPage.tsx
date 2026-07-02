@@ -3,13 +3,13 @@ import { api, type PublicAccount } from '../api/client';
 import { Banner } from '../components/Banner';
 import { LogStream } from '../components/LogStream';
 import { useAppStore } from '../store/appStore';
-import { WORKFLOW_PACKS } from '@easymodal/shared';
-import type { InstanceStatus, Milestone } from '@easymodal/shared';
+import { WORKFLOW_PACKS, DEPLOY_TARGETS } from '@easymodal/shared';
+import type { InstanceStatus, Milestone, DeployTarget } from '@easymodal/shared';
 
 const CHECKLIST: { id: Milestone; label: string }[] = [
   { id: 'image-building', label: 'Building container image' },
   { id: 'models-downloading', label: 'Downloading models' },
-  { id: 'comfyui-starting', label: 'Starting ComfyUI' },
+  { id: 'comfyui-starting', label: 'Starting app server' },
   { id: 'url-ready', label: 'Deployment ready' },
 ];
 
@@ -45,6 +45,11 @@ export function DeployPage() {
     .map((id) => WORKFLOW_PACKS.find((p) => p.id === id)?.label ?? id)
     .join(', ');
 
+  const target: DeployTarget = cfg.target ?? 'comfyui';
+  const targetMeta = DEPLOY_TARGETS.find((t) => t.id === target)!;
+  const isComfy = target === 'comfyui';
+  const deployLabel = isComfy ? '🚀 Deploy ComfyUI to Modal' : '🚀 Deploy AI Toolkit to Modal';
+
   async function deploy() {
     if (!accountId) {
       setError('Pick a Modal account first.');
@@ -77,7 +82,7 @@ export function DeployPage() {
     <div className="mx-auto max-w-2xl">
       <h2 className="text-xl font-semibold text-white">Deploy</h2>
       <p className="mt-1 text-sm text-slate-400">
-        Build ComfyUI on Modal with your chosen hardware + workflow packs.
+        Build {targetMeta.label} on Modal with your chosen hardware{isComfy ? ' + workflow packs.' : '.'}
       </p>
 
       {/* Account picker */}
@@ -114,6 +119,8 @@ export function DeployPage() {
           </button>
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400">
+          <dt>Target</dt>
+          <dd className="text-slate-200">{targetMeta.label}</dd>
           <dt>App</dt>
           <dd className="text-slate-200">{cfg.appName}</dd>
           <dt>GPU</dt>
@@ -126,8 +133,12 @@ export function DeployPage() {
           <dd className="text-slate-200">{cfg.maxInputs}</dd>
           <dt>Timeout</dt>
           <dd className="text-slate-200">{cfg.timeoutSeconds / 60} min</dd>
-          <dt>Packs</dt>
-          <dd className="text-slate-200">{selectedPacks}</dd>
+          {isComfy && (
+            <>
+              <dt>Packs</dt>
+              <dd className="text-slate-200">{selectedPacks}</dd>
+            </>
+          )}
         </dl>
       </section>
 
@@ -145,10 +156,12 @@ export function DeployPage() {
           disabled={deploying || !accountId}
           className="w-full rounded-lg bg-sky-600 px-4 py-4 text-base font-semibold text-white disabled:opacity-50 hover:bg-sky-500"
         >
-          {deploying ? 'Deploying…' : '🚀 Deploy ComfyUI to Modal'}
+          {deploying ? 'Deploying…' : deployLabel}
         </button>
         <p className="mt-2 text-center text-xs text-slate-500">
-          First build downloads ~30GB of models (15-30 min). More packs = bigger build.
+          {isComfy
+            ? 'First build downloads ~30GB of models (15-30 min). More packs = bigger build.'
+            : 'First build downloads ~71GB of models (20-40 min). Subsequent deploys use the volume cache.'}
         </p>
       </div>
 
@@ -189,7 +202,7 @@ export function DeployPage() {
 
       {allDone && (
         <div className="mt-5">
-          <Banner variant="success" title="ComfyUI is deployed! 🎉">
+          <Banner variant="success" title={`${targetMeta.label} is deployed! 🎉`}>
             Your instance is ready.{' '}
             <button onClick={() => setStep('launch')} className="underline">
               Go to Launch →

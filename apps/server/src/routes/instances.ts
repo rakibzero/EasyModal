@@ -200,6 +200,16 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const inst = liveInstances.get(id) ?? getPersistedInstance(id);
     if (!inst) return reply.code(404).send({ ok: false, message: 'Instance not found.' });
 
+    // reset_custom_nodes is a ComfyUI-only concept (Manager-installed nodes).
+    // AI Toolkit has no custom_nodes, so this operation is not applicable.
+    const target = (inst.config as { target?: string }).target ?? 'comfyui';
+    if (target === 'ai-toolkit') {
+      return reply.code(400).send({
+        ok: false,
+        message: 'Reset custom_nodes is a ComfyUI-only operation. This is an AI Toolkit instance.',
+      });
+    }
+
     const cfg: DeployConfig = {
       appName: inst.config.appName,
       gpu: DEFAULT_DEPLOY_CONFIG.gpu,
@@ -283,6 +293,17 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     if (!newAccountId) return reply.code(400).send({ ok: false, message: 'accountId is required.' });
     const newAccount = getAccount(newAccountId);
     if (!newAccount) return reply.code(404).send({ ok: false, message: 'New account not found.' });
+
+    // wipe_account_dirs is currently ComfyUI-only (the function lives in
+    // comfyapp.py.tpl, not aitoolkit_app.py). AI Toolkit switch-account is not
+    // supported yet — reject with a clear message instead of crashing the run.
+    const target = (inst.config as { target?: string }).target ?? 'comfyui';
+    if (target === 'ai-toolkit') {
+      return reply.code(400).send({
+        ok: false,
+        message: 'Account switching for AI Toolkit instances is not yet supported.',
+      });
+    }
 
     const cfg: DeployConfig = {
       appName: inst.config.appName,
