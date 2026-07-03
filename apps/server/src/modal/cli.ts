@@ -55,7 +55,7 @@ function renderNodeClones(nodes: NodeClone[]): string {
 function renderExtraModels(models: PackModel[]): string {
   if (models.length === 0) return '    # (no extra pack models)';
   return models
-    .map((m) => `    (${JSON.stringify(m.subdir)}, ${JSON.stringify(m.repo)}, ${JSON.stringify(m.filepath)}, ${m.required}),`)
+    .map((m) => `    (${JSON.stringify(m.subdir)}, ${JSON.stringify(m.repo)}, ${JSON.stringify(m.filepath)}, ${m.required ? 'True' : 'False'}),`)
     .join('\n');
 }
 
@@ -175,7 +175,7 @@ export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): 
 
   const child = spawn('modal', ['deploy', fileName], {
     cwd: workdir,
-    env: process.env,
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
   });
 
   const splitLines = (chunk: Buffer, fn: (line: string) => void) => {
@@ -201,7 +201,7 @@ export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): 
 export async function listApps(): Promise<string> {
   return new Promise((resolve, reject) => {
     let out = '';
-    const child = spawn('modal', ['app', 'list'], { env: process.env });
+    const child = spawn('modal', ['app', 'list'], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
     child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
     child.on('exit', (code) => (code === 0 ? resolve(out) : reject(new Error(out))));
