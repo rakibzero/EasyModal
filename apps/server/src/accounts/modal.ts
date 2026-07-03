@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { modalEnv } from '../modal/env.js';
 
 const execFileP = promisify(execFile);
 
@@ -25,7 +26,7 @@ export async function validateModalToken(
     await execFileP(
       'modal',
       ['token', 'set', '--token-id', tokenId, '--token-secret', tokenSecret, `--profile=${profile}`],
-      { timeout: 20_000, env: process.env },
+      { timeout: 20_000, env: modalEnv() },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -36,7 +37,7 @@ export async function validateModalToken(
   try {
     const { stdout } = await execFileP('modal', ['profile', 'current'], {
       timeout: 15_000,
-      env: { ...process.env, MODAL_PROFILE: profile },
+      env: { ...modalEnv(), MODAL_PROFILE: profile },
     });
     return {
       ok: true,
@@ -58,7 +59,7 @@ export async function persistModalToken(
   await execFileP(
     'modal',
     ['token', 'set', '--token-id', tokenId, '--token-secret', tokenSecret, `--profile=${profile}`],
-    { timeout: 20_000, env: process.env },
+    { timeout: 20_000, env: modalEnv() },
   );
 }
 
@@ -79,13 +80,13 @@ export async function activateAccountProfile(
   await execFileP(
     'modal',
     ['token', 'set', '--token-id', tokenId, '--token-secret', tokenSecret, `--profile=${profile}`],
-    { timeout: 20_000, env: process.env },
+    { timeout: 20_000, env: modalEnv() },
   );
   // Activate the profile so subsequent modal commands use it.
   try {
     await execFileP('modal', ['profile', 'activate', profile], {
       timeout: 15_000,
-      env: process.env,
+      env: modalEnv(),
     });
   } catch {
     // Some modal versions don't have `profile activate`; fall back to env.
@@ -98,7 +99,7 @@ export async function setHuggingFaceSecret(hfToken: string): Promise<{ ok: boole
     // `modal secret put` is idempotent — it creates or replaces.
     await execFileP('modal', ['secret', 'put', 'huggingface', `HF_TOKEN=${hfToken}`], {
       timeout: 20_000,
-      env: process.env,
+      env: modalEnv(),
     });
     return { ok: true, message: 'HuggingFace secret stored on Modal.' };
   } catch (err) {
@@ -123,7 +124,7 @@ export async function ensureAiToolkitAuthSecret(
   try {
     await execFileP('modal', ['secret', 'put', 'ai-toolkit-auth', `AI_TOOLKIT_AUTH=${token}`], {
       timeout: 20_000,
-      env: process.env,
+      env: modalEnv(),
     });
     return { ok: true, token, message: 'AI Toolkit auth secret stored on Modal.' };
   } catch (err) {

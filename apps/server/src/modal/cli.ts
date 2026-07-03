@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, join as joinPath } from 'node:path';
 import { resolveNodes, resolveModels, type NodeClone, type PackModel } from './packs.js';
+import { modalEnv } from './env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMFY_TEMPLATE = joinPath(__dirname, '..', '..', 'templates', 'comfyapp.py.tpl');
@@ -124,8 +125,44 @@ function renderAiToolkitConfigBundle(): string {
 
 /** Render the appropriate template for the deploy target. */
 export function renderTemplate(cfg: DeployConfig): string {
-  if (cfg.target === 'ai-toolkit') return renderAiToolkitTemplate(cfg);
-  return renderComfyTemplate(cfg);
+  const rendered = cfg.target === 'ai-toolkit' ? renderAiToolkitTemplate(cfg) : renderComfyTemplate(cfg);
+  assertNoJsTokensInPython(rendered);
+  return rendered;
+}
+
+/**
+ * Regression guard: catch JS literals that leaked into rendered Python.
+ *
+ * The false→False bug (cli.ts:58) shipped because a JS boolean was stringified
+ * straight into a Python tuple. ast.parse would NOT have caught it — `false`
+ * is a syntactically valid Python name, so it only explodes at runtime with
+ * NameError. This guard scans the rendered source for bare JS literals
+ * (`true`, `false`, `null`, `undefined`) that appear as CODE tokens, not
+ * inside comments or string literals, and fails the deploy loudly before it
+ * ever reaches `modal deploy`.
+ *
+ * Approach: strip line comments (# ...), then strip string literals (single,
+ * double, triple-quoted), then regex-scan what remains for the JS tokens as
+ * whole words. Stripping first is what avoids the false-positive that a naive
+ * regex would hit on prose like "# required=False models warn…".
+ */
+export function assertNoJsTokensInPython(source: string, label = 'template'): void {
+  // Strip full-line and trailing # comments.
+  const noComments = source.replace(/#[^\n]*/g, '');
+  // Strip triple-quoted strings first (greedy, non-overlapping), then the rest.
+  const noStrings = noComments
+    .replace(/"""[\s\S]*?"""/g, "''")
+    .replace(/'''[\s\S]*?'''/g, "''")
+    .replace(/"(?:\\.|[^"\\])*"/g, "''")
+    .replace(/'(?:\\.|[^'\\])*'/g, "''");
+  const match = noStrings.match(/\b(?:true|false|null|undefined)\b/);
+  if (match) {
+    throw new Error(
+      `Rendered ${label} contains a bare JS literal "${match[0]}" — ` +
+        `this would crash Python at runtime (NameError). ` +
+        `Check the renderer for an un-converted JS value.`,
+    );
+  }
 }
 
 /** Render the comfyapp.py template with the given config. */
@@ -175,7 +212,7 @@ export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): 
 
   const child = spawn('modal', ['deploy', fileName], {
     cwd: workdir,
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    env: modalEnv(),
   });
 
   const splitLines = (chunk: Buffer, fn: (line: string) => void) => {
@@ -201,7 +238,7 @@ export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): 
 export async function listApps(): Promise<string> {
   return new Promise((resolve, reject) => {
     let out = '';
-    const child = spawn('modal', ['app', 'list'], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    const child = spawn('modal', ['app', 'list'], { env: modalEnv() });
     child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
     child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
     child.on('exit', (code) => (code === 0 ? resolve(out) : reject(new Error(out))));

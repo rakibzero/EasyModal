@@ -17,6 +17,7 @@ import {
 } from '../modal/cli.js';
 import { classifyLine } from '../modal/milestones.js';
 import { activateAccountProfile } from '../accounts/modal.js';
+import { modalEnv } from '../modal/env.js';
 import { bus } from '../events/bus.js';
 import type { InstanceStatus, Milestone } from '@easymodal/shared';
 
@@ -257,7 +258,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return new Promise((resolve) => {
-      const child = spawn('modal', ['run', 'run_reset.py'], { cwd: workdir, env: process.env });
+      const child = spawn('modal', ['run', 'run_reset.py'], { cwd: workdir, env: modalEnv() });
       let out = '';
       child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
       child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
@@ -344,7 +345,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     bus.info(`Wiping volume dirs for account switch…`, { instanceId: inst.id });
 
     return new Promise((resolve) => {
-      const child = spawn('modal', ['run', 'run_wipe.py'], { cwd: workdir, env: process.env });
+      const child = spawn('modal', ['run', 'run_wipe.py'], { cwd: workdir, env: modalEnv() });
       let out = '';
       child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
       child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));

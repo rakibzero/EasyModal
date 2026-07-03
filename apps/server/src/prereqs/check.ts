@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { modalEnv } from '../modal/env.js';
 
 const execFileP = promisify(execFile);
 
@@ -25,7 +26,7 @@ export async function checkPrereqs(): Promise<PrereqResult> {
   try {
     const { stdout, stderr } = await execFileP('modal', ['--version'], {
       timeout: 10_000,
-      env: process.env,
+      env: modalEnv(),
     });
     const out = `${stdout}\n${stderr}`.trim();
     modalInstalled = true;
