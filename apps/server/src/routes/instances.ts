@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { getAccount, setActiveAccount } from '../repo/configStore.js';
+import {
+  getAccount,
+  setActiveAccount,
+  getAiToolkitAuthToken,
+  setAiToolkitAuthToken,
+} from '../repo/configStore.js';
 import {
   listPersistedInstances,
   upsertPersistedInstance,
@@ -16,7 +21,7 @@ import {
   type DeployConfig,
 } from '../modal/cli.js';
 import { classifyLine } from '../modal/milestones.js';
-import { activateAccountProfile } from '../accounts/modal.js';
+import { activateAccountProfile, verifyHuggingFaceSecret } from '../accounts/modal.js';
 import { modalEnv } from '../modal/env.js';
 import { bus } from '../events/bus.js';
 import type { InstanceStatus, Milestone } from '@easymodal/shared';
@@ -66,7 +71,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ ok: false, message: 'Account not found. Add it in Keys first.' });
     }
 
-    const cfg: DeployConfig = { ...DEFAULT_DEPLOY_CONFIG, ...config };
+    const cfg: DeployConfig = { ...DEFAULT_DEPLOY_CONFIG, ...config, accountId };
 
     // Activate this account's Modal profile so the deploy targets the right account.
     bus.info(`Activating Modal profile for "${account.label}"…`, { instanceId: undefined });
@@ -79,13 +84,24 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    // Pre-flight: confirm the HF secret exists on THIS account. Without it,
+    // model downloads silently fall back to anonymous HF and hang/fail mid-build.
+    const hfCheck = await verifyHuggingFaceSecret();
+    if (!hfCheck.ok) {
+      return reply.code(400).send({ ok: false, message: hfCheck.message });
+    }
+
     // AI Toolkit needs an extra auth secret (its web UI gates on AI_TOOLKIT_AUTH).
+    // Reuse the per-account persisted token if present so ModHeader config is
+    // stable across redeploys; otherwise mint + persist a new one.
     if (cfg.target === 'ai-toolkit') {
       const { ensureAiToolkitAuthSecret } = await import('../accounts/modal.js');
-      const authRes = await ensureAiToolkitAuthSecret();
+      const existingToken = getAiToolkitAuthToken(account.id);
+      const authRes = await ensureAiToolkitAuthSecret(existingToken);
       if (!authRes.ok) {
         return reply.code(400).send({ ok: false, message: authRes.message });
       }
+      if (!existingToken) setAiToolkitAuthToken(account.id, authRes.token);
       bus.info(`AI Toolkit auth secret ready. Your UI access token: ${authRes.token}`, {
         instanceId: undefined,
       });
@@ -114,27 +130,24 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           const newStatus = MILESTONE_TO_STATUS[milestone];
           if (newStatus && newStatus !== inst.status) inst.status = newStatus;
           if (milestone === 'url-ready') {
-            const urlMatch = message.match(/https?:\/\/\S+/);
-            if (urlMatch) inst.url = urlMatch[0];
+            // Strip trailing punctuation (trailing period/comma/colon from log line).
+            const urlMatch = message.match(/https?:\/\/[^\s)<>\]\}]+/);
+            if (urlMatch) inst.url = urlMatch[0].replace(/[.,;:!?)]+$/, '');
           }
           if (milestone === 'failed') inst.lastError = message;
           upsertPersistedInstance(inst);
         }
       },
       onStderr: (line) => {
+        // Surface stderr as warnings, but do NOT flip status to 'failed' on text
+        // matching alone. Pip/Python/comfy print benign lines containing "error"
+        // (e.g. "0 errors", deprecation warnings) — treating those as failure
+        // marked successful deploys as failed. Authoritative failure = exit code.
         bus.info(`[stderr] ${line}`, { level: 'warn', instanceId: inst.id });
-        if (/error|failed|exception/i.test(line)) {
-          inst.status = 'failed';
-          inst.lastError = line;
-          upsertPersistedInstance(inst);
-        }
       },
       onExit: (code) => {
         if (code === 0) {
           if (inst.status !== 'failed') inst.status = inst.url ? 'ready' : 'serving';
-          // Only trust a real *.modal.run URL captured from modal deploy output.
-          // We do NOT fabricate a URL — Modal web_server URLs have a random prefix,
-          // so guessing https://<appName>-ui.modal.run produces dead links.
           bus.info(`Deploy finished successfully.`, {
             level: 'success',
             milestone: 'url-ready',
@@ -203,7 +216,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
     // reset_custom_nodes is a ComfyUI-only concept (Manager-installed nodes).
     // AI Toolkit has no custom_nodes, so this operation is not applicable.
-    const target = (inst.config as { target?: string }).target ?? 'comfyui';
+    const target = inst.config.target ?? 'comfyui';
     if (target === 'ai-toolkit') {
       return reply.code(400).send({
         ok: false,
@@ -211,15 +224,10 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const cfg: DeployConfig = {
-      appName: inst.config.appName,
-      gpu: DEFAULT_DEPLOY_CONFIG.gpu,
-      maxInputs: inst.config.maxInputs,
-      timeoutSeconds: inst.config.timeoutSeconds,
-      memoryMb: inst.config.memoryMb,
-      cpu: inst.config.cpu,
-      packs: (inst.config as { packs?: string[] }).packs ?? ['wan22'],
-    };
+    // Rebuild the FULL stored config (target + accountId + packs) so the
+    // rendered template matches the deployed one — otherwise the volume name
+    // wouldn't match and reset would target a different volume than the app.
+    const cfg: DeployConfig = { ...inst.config, accountId: inst.accountId };
 
     const account = getAccount(inst.accountId);
     if (!account) {
@@ -282,9 +290,14 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Switch account: wipe custom_nodes/input/output/user on the volume (so the
-   * next account starts clean), then activate the new account's Modal token.
-   * Models are NOT wiped. Requires a currently-deployed app to run the wipe.
+   * Switch account for this instance: just swap which Modal account/token the
+   * instance is bound to. No volume wipe is needed — each account has its own
+   * isolated volume (wan-models-{accountId} / ai-toolkit-{accountId}), so the
+   * new account's next deploy targets a fresh volume with zero bleed from the
+   * previous account's nodes/outputs/uploads.
+   *
+   * Works for both ComfyUI and AI Toolkit (no per-template function call needed
+   * — the wipe was the only target-specific part, and it's gone).
    */
   app.post('/api/instances/:id/switch-account', async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -295,95 +308,26 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const newAccount = getAccount(newAccountId);
     if (!newAccount) return reply.code(404).send({ ok: false, message: 'New account not found.' });
 
-    // wipe_account_dirs is currently ComfyUI-only (the function lives in
-    // comfyapp.py.tpl, not aitoolkit_app.py). AI Toolkit switch-account is not
-    // supported yet — reject with a clear message instead of crashing the run.
-    const target = (inst.config as { target?: string }).target ?? 'comfyui';
-    if (target === 'ai-toolkit') {
+    // Activate the new account's Modal token (validates it + targets future deploys).
+    try {
+      await activateAccountProfile(newAccountId, newAccount.modalTokenId, newAccount.modalTokenSecret);
+    } catch (e) {
       return reply.code(400).send({
         ok: false,
-        message: 'Account switching for AI Toolkit instances is not yet supported.',
+        message: `Could not activate new account: ${String((e as Error).message || e).slice(0, 200)}`,
       });
     }
 
-    const cfg: DeployConfig = {
-      appName: inst.config.appName,
-      gpu: DEFAULT_DEPLOY_CONFIG.gpu,
-      maxInputs: inst.config.maxInputs,
-      timeoutSeconds: inst.config.timeoutSeconds,
-      memoryMb: inst.config.memoryMb,
-      cpu: inst.config.cpu,
-      packs: (inst.config as { packs?: string[] }).packs ?? ['wan22'],
-    };
-
-    // Activate the CURRENT account first so we can wipe ITS volume dirs.
-    const currentAccount = getAccount(inst.accountId);
-    if (currentAccount) {
-      try {
-        await activateAccountProfile(inst.accountId, currentAccount.modalTokenId, currentAccount.modalTokenSecret);
-      } catch { /* best-effort */ }
-    }
-
-    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const { spawn } = await import('node:child_process');
-    const workdir = mkdtempSync(join(tmpdir(), 'easymodal-switch-'));
-    writeFileSync(join(workdir, 'comfyapp.py'), renderTemplate(cfg), { mode: 0o600 });
-    writeFileSync(
-      join(workdir, 'run_wipe.py'),
-      `import modal\n` +
-        `app = modal.App.lookup("${inst.config.appName}", create_if_missing=False)\n` +
-        `if app is None:\n` +
-        `    print("APP_NOT_FOUND")\n` +
-        `else:\n` +
-        `    from comfyapp import wipe_account_dirs\n` +
-        `    print(wipe_account_dirs.remote())\n`,
-      { mode: 0o600 },
-    );
-
-    bus.info(`Wiping volume dirs for account switch…`, { instanceId: inst.id });
-
-    return new Promise((resolve) => {
-      const child = spawn('modal', ['run', 'run_wipe.py'], { cwd: workdir, env: modalEnv() });
-      let out = '';
-      child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
-      child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
-      child.on('exit', async (code) => {
-        rmSync(workdir, { recursive: true, force: true });
-        if (out.includes('APP_NOT_FOUND')) {
-          // No deployed app — just switch the token. Volume will be fresh on next deploy.
-          setActiveAccount(newAccountId);
-          inst.accountId = newAccountId;
-          upsertPersistedInstance(inst);
-          bus.info(`Switched to "${newAccount.label}" (no app to wipe).`, { level: 'success', instanceId: inst.id });
-          resolve({ ok: true, wiped: false, message: 'Switched account. No deployed app to wipe.' });
-          return;
-        }
-        if (code !== 0) {
-          bus.info(`Account switch wipe failed (exit ${code}).`, { level: 'error', instanceId: inst.id });
-          resolve(reply.code(500).send({ ok: false, message: out.slice(-300) }));
-          return;
-        }
-        // Wipe succeeded — now activate the NEW account.
-        try {
-          await activateAccountProfile(newAccountId, newAccount.modalTokenId, newAccount.modalTokenSecret);
-        } catch (e) {
-          resolve(reply.code(500).send({
-            ok: false,
-            message: `Wipe ok, but could not activate new account: ${String((e as Error).message || e).slice(0, 200)}`,
-          }));
-          return;
-        }
-        setActiveAccount(newAccountId);
-        inst.accountId = newAccountId;
-        upsertPersistedInstance(inst);
-        bus.info(`Switched to "${newAccount.label}". Volume dirs wiped clean.`, {
-          level: 'success',
-          instanceId: inst.id,
-        });
-        resolve({ ok: true, wiped: true, output: out.slice(-300) });
-      });
+    // Rebind the instance to the new account. The stored config carries the
+    // accountId, so the next deploy/reset renders a template whose volume name
+    // matches the new account — no manual wipe, no cross-account data leak.
+    setActiveAccount(newAccountId);
+    inst.accountId = newAccountId;
+    upsertPersistedInstance(inst);
+    bus.info(`Switched to "${newAccount.label}". Next deploy targets its own isolated volume.`, {
+      level: 'success',
+      instanceId: inst.id,
     });
+    return { ok: true, message: `Switched to ${newAccount.label}.` };
   });
 }

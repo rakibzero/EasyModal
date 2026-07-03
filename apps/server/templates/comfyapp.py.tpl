@@ -43,7 +43,7 @@ MODEL_DIR = f"{COMFY_ROOT}/models"
 CACHE_DIR = "/cache"
 VOL_MODELS = f"{CACHE_DIR}/models"
 
-vol = modal.Volume.from_name("wan-models", create_if_missing=True)
+vol = modal.Volume.from_name("{{VOLUME_NAME}}", create_if_missing=True)
 
 # =============================================================================
 # PERSISTENT DIRECTORIES — these live on the volume so they survive cold starts.
@@ -362,7 +362,7 @@ def main():
     print("Pre-downloading all models to volume...")
     print("First run takes 15-30 min. Subsequent runs are instant.")
     download_all_models.remote()
-    print("\nDone! Models cached in 'wan-models' volume.")
+    print("\nDone! Models cached in '{{VOLUME_NAME}}' volume.")
 
 
 @app.function(volumes={CACHE_DIR: vol}, timeout=300)

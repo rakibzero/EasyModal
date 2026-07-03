@@ -17,6 +17,11 @@ export interface DeployConfig {
   /** Which app to deploy — picks the template. Default 'comfyui'. */
   target?: 'comfyui' | 'ai-toolkit';
   appName: string;
+  /**
+   * Modal account id. Namespaces the persistent volume so each account has
+   * its own isolated state (models, custom_nodes, output, input, user).
+   */
+  accountId: string;
   gpu: string;
   maxInputs: number;
   timeoutSeconds: number;
@@ -29,6 +34,7 @@ export interface DeployConfig {
 export const DEFAULT_DEPLOY_CONFIG: DeployConfig = {
   target: 'comfyui',
   appName: 'easymodal',
+  accountId: 'default',
   gpu: 'A100-80GB',
   maxInputs: 2, // safe default — single Wan2.2 inference uses 30-50GB VRAM
   timeoutSeconds: 1800,
@@ -166,11 +172,27 @@ export function assertNoJsTokensInPython(source: string, label = 'template'): vo
 }
 
 /** Render the comfyapp.py template with the given config. */
+/**
+ * Build a per-account volume name. Each Modal account gets its own isolated
+ * volume so models, custom_nodes, output, input, and user dirs never bleed
+ * across accounts. Modal volume names must match ^[a-z0-9-]+$ — sanitize.
+ */
+function volumeNameFor(cfg: DeployConfig): string {
+  const prefix = cfg.target === 'ai-toolkit' ? 'ai-toolkit' : 'wan-models';
+  const safeId = (cfg.accountId ?? 'default')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'default';
+  return `${prefix}-${safeId}`;
+}
+
 function renderComfyTemplate(cfg: DeployConfig): string {
   const packs = cfg.packs ?? ['wan22'];
   const tpl = readFileSync(COMFY_TEMPLATE, 'utf8');
   const rendered = tpl
     .replaceAll('{{APP_NAME}}', cfg.appName)
+    .replaceAll('{{VOLUME_NAME}}', volumeNameFor(cfg))
     .replaceAll('{{GPU}}', cfg.gpu)
     .replaceAll('{{MAX_INPUTS}}', String(cfg.maxInputs))
     .replaceAll('{{TIMEOUT_SECONDS}}', String(cfg.timeoutSeconds))
@@ -188,6 +210,7 @@ function renderAiToolkitTemplate(cfg: DeployConfig): string {
   const tpl = readFileSync(AITOOLKIT_TEMPLATE, 'utf8');
   return tpl
     .replaceAll('{{APP_NAME}}', cfg.appName)
+    .replaceAll('{{VOLUME_NAME}}', volumeNameFor(cfg))
     .replaceAll('{{GPU}}', cfg.gpu)
     .replaceAll('{{MEMORY_MB}}', String(cfg.memoryMb))
     .replaceAll('{{CPU}}', String(cfg.cpu))
@@ -199,6 +222,16 @@ export interface DeployCallbacks {
   onStderr: (line: string) => void;
   onExit: (code: number | null) => void;
 }
+
+/**
+ * Hard wall-clock cap on a single deploy. `modal deploy` itself has no
+ * user-facing timeout — a stuck model download (large image-edit pack,
+ * flaky HF mirror) can hold the UI at "downloading" forever. We force-kill
+ * the child after this many ms and report a timeout so the user can retry.
+ * Generous: image build + ~70GB model fetch on a cold cache can legitimately
+ * take 40+ min, so default is 90 min.
+ */
+const DEPLOY_TIMEOUT_MS = 90 * 60 * 1000;
 
 /**
  * Render the template to a temp dir and run `modal deploy` there, streaming
@@ -223,10 +256,25 @@ export function deployRenderedTemplate(cfg: DeployConfig, cb: DeployCallbacks): 
       .forEach((line) => line.trim() && fn(line));
   };
 
+  // Force-kill on timeout. `kill` delivers SIGTERM to the modal CLI, which
+  // propagates to its build subprocesses; the exit handler then fires with a
+  // non-zero code and we surface a timeout message instead of hanging forever.
+  let timedOut = false;
+  const killer = setTimeout(() => {
+    timedOut = true;
+    try { child.kill('SIGTERM'); } catch { /* already exited */ }
+  }, DEPLOY_TIMEOUT_MS);
+
   child.stdout?.on('data', (chunk: Buffer) => splitLines(chunk, cb.onStdout));
   child.stderr?.on('data', (chunk: Buffer) => splitLines(chunk, cb.onStderr));
   child.on('exit', (code) => {
-    cb.onExit(code);
+    clearTimeout(killer);
+    if (timedOut) {
+      cb.onStderr(`Deploy timed out after ${Math.round(DEPLOY_TIMEOUT_MS / 60000)} minutes — model download may be stuck. Try again.`);
+      cb.onExit(1);
+    } else {
+      cb.onExit(code);
+    }
     // Clean up the temp dir after the deploy finishes.
     rmSync(workdir, { recursive: true, force: true });
   });

@@ -16,6 +16,12 @@ const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 export interface StoredAccount extends Account {
   /** Optional HuggingFace token associated with this account. */
   huggingfaceToken?: string;
+  /**
+   * Persistent AI Toolkit web-UI auth token for this account. Generated once
+   * on first AI Toolkit deploy, then reused so ModHeader config stays stable
+   * across redeploys. If absent, a new one is minted + persisted on next deploy.
+   */
+  aiToolkitAuthToken?: string;
 }
 
 interface ConfigShape {
@@ -96,4 +102,19 @@ export function setActiveAccount(id: string): void {
   const cfg = readConfig();
   cfg.activeAccountId = id;
   writeConfig(cfg);
+}
+
+/** Get this account's persisted AI Toolkit web-UI auth token, if any. */
+export function getAiToolkitAuthToken(accountId: string): string | undefined {
+  return getAccount(accountId)?.aiToolkitAuthToken;
+}
+
+/** Persist the AI Toolkit auth token on the account (generated once, reused). */
+export function setAiToolkitAuthToken(accountId: string, token: string): void {
+  const cfg = readConfig();
+  const idx = cfg.accounts.findIndex((a) => a.id === accountId);
+  if (idx >= 0) {
+    cfg.accounts[idx].aiToolkitAuthToken = token;
+    writeConfig(cfg);
+  }
 }

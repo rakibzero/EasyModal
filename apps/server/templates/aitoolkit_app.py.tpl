@@ -47,7 +47,7 @@ UI_PORT = 8675
 # Volume & Secrets
 # =============================================================================
 
-vol = modal.Volume.from_name("ai-toolkit-data", create_if_missing=True)
+vol = modal.Volume.from_name("{{VOLUME_NAME}}", create_if_missing=True)
 
 # =============================================================================
 # Directory Setup
@@ -191,12 +191,12 @@ app = modal.App(APP_NAME, image=image)
     timeout=7200,
 )
 def download_models_remote():
-    print("Starting model pre-download to Volume 'ai-toolkit-data'...")
+    print("Starting model pre-download to Volume '{{VOLUME_NAME}}'...")
     print("This runs on CPU only — no GPU used or charged.")
     download_models()
     vol.commit()
     print("\n=== PRE-DOWNLOAD COMPLETE ===")
-    print("Models cached on 'ai-toolkit-data' volume.")
+    print("Models cached on '{{VOLUME_NAME}}' volume.")
     print("Ready for GPU deployment:\n  modal deploy aitoolkit_app.py")
 
 
@@ -454,7 +454,7 @@ def main():
     print("  ai-toolkit Modal Pre-Download")
     print("=" * 60)
     print()
-    print("This will download ~71 GB of model files to the 'ai-toolkit-data' volume.")
+    print("This will download ~71 GB of model files to the '{{VOLUME_NAME}}' volume.")
     print("No GPU will be used. The web server is NOT deployed.")
     print()
     print("After this completes, deploy the GPU server with:")
@@ -467,9 +467,9 @@ def main():
     try:
         handle.get(timeout=3600)
         print("\n=== PRE-DOWNLOAD COMPLETE ===")
-        print("Models cached on 'ai-toolkit-data' volume.")
+        print("Models cached on '{{VOLUME_NAME}}' volume.")
         print("Ready for GPU deployment:\n  modal deploy aitoolkit_app.py")
     except TimeoutError:
         print("\nDownload still running in background (large files).")
-        print("Check progress: modal volume ls ai-toolkit-data hf-cache/")
+        print("Check progress: modal volume ls {{VOLUME_NAME}} hf-cache/")
         print("The function continues independently — no need to re-run.")

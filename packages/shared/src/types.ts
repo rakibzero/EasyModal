@@ -63,6 +63,12 @@ export interface DeployConfig {
   cpu: number;
   /** Modal app name. */
   appName: string;
+  /**
+   * Modal account id this deploy targets. Set by the server (from the request
+   * body's accountId) to namespace the persistent volume per account. Optional
+   * on the client type since the client doesn't pick it — the server injects it.
+   */
+  accountId?: string;
   /** Selected workflow packs (each adds nodes+models to the build). ComfyUI only. */
   packs?: string[];
 }

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { InstanceStatus } from '@easymodal/shared';
+import type { InstanceStatus, DeployConfig } from '@easymodal/shared';
 
 /**
  * Persisted instance registry — survives app restarts (resumable).
@@ -15,14 +15,8 @@ export interface PersistedInstance {
   accountId: string;
   name: string;
   status: InstanceStatus;
-  config: {
-    appName: string;
-    gpu: string;
-    maxInputs: number;
-    timeoutSeconds: number;
-    memoryMb: number;
-    cpu: number;
-  };
+  /** Full deploy config so reset/switch can rebuild the template exactly. */
+  config: DeployConfig;
   url?: string;
   lastDeployedAt?: string;
   lastError?: string;

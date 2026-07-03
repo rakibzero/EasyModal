@@ -109,10 +109,42 @@ export async function setHuggingFaceSecret(hfToken: string): Promise<{ ok: boole
 }
 
 /**
+ * Pre-flight check: confirm the `huggingface` secret exists on this Modal
+ * account before we attempt `modal deploy`. Without it, the image build's
+ * model downloads silently fall back to anonymous HF access — which either
+ * rate-limits and hangs for hours, or 401s mid-download with the error buried
+ * in pip output. Failing fast here gives the user an actionable message
+ * ("set your HF token in Keys") instead of a mystery hang.
+ *
+ * `modal secret list` prints one secret per line; we grep for the name.
+ */
+export async function verifyHuggingFaceSecret(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const { stdout } = await execFileP('modal', ['secret', 'list'], {
+      timeout: 20_000,
+      env: modalEnv(),
+    });
+    const hasSecret = /^huggingface\b/m.test(stdout) || /huggingface/.test(stdout);
+    return hasSecret
+      ? { ok: true, message: 'HuggingFace secret present.' }
+      : {
+          ok: false,
+          message:
+            'The "huggingface" Modal secret is not set on this account. Open Keys and save your HF token first — model downloads will fail without it.',
+        };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: `Could not verify HuggingFace secret: ${msg.slice(0, 200)}` };
+  }
+}
+
+/**
  * Ensure the `ai-toolkit-auth` Modal secret exists (required by the AI Toolkit
- * web server for its secondary auth gate). If the user supplied a token use it;
- * otherwise generate a random one. Idempotent — safe to call before every
- * AI Toolkit deploy. Returns the token that's now stored.
+ * web server for its secondary auth gate). Reuses a persisted per-account token
+ * if provided (so ModHeader config stays stable across redeploys); otherwise
+ * generates a random one. Idempotent — safe to call before every deploy.
+ * Returns the token that's now stored. Caller should persist `token` per
+ * account so the next deploy reuses it.
  */
 export async function ensureAiToolkitAuthSecret(
   userToken?: string,
