@@ -45,15 +45,28 @@ export const DEFAULT_DEPLOY_CONFIG: DeployConfig = {
 
 const CN = '/root/comfy/ComfyUI/custom_nodes';
 
-/** Render the git-clone + pip-install chain for the given nodes. */
+/**
+ * Render the git-clone + pip-install chain for the given nodes.
+ *
+ * Each clone is best-effort: a dead/404/private repo logs a warning and the
+ * build continues, so one bad node URL never aborts the whole deploy. We do
+ * this by OR-ing the clone with an `echo` so the command always exits 0 — but
+ * only AFTER the pip install for that node, so a requirements failure also
+ * degrades gracefully instead of killing the image. The pip install only runs
+ * if the clone succeeded (guarded by `cd`), so a missing repo can't pull in
+ * phantom deps.
+ */
 function renderNodeClones(nodes: NodeClone[]): string {
   return nodes
     .map((n) => {
       const name = n.url.split('/').slice(-1)[0];
       const req = n.hasRequirements
-        ? ` && cd ${name} && pip install -r ${n.requirementsFile ?? 'requirements.txt'}`
+        ? ` && (cd ${name} && pip install -r ${n.requirementsFile ?? 'requirements.txt'})`
         : '';
-      return `    .run_commands("cd ${CN} && git clone ${n.url}${req}")`;
+      // `|| echo` swallows the non-zero exit so the layer succeeds. Modal's
+      // image builder otherwise treats any command failure as a fatal build
+      // error and aborts the entire deploy.
+      return `    .run_commands("cd ${CN} && (git clone ${n.url}${req}) || echo 'WARN: skipped node ${name} (clone or pip install failed)'")`;
     })
     .join('\n');
 }

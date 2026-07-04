@@ -67,13 +67,16 @@ export const PACKS: Record<string, WorkflowPackDef> = {
   'image-edit': {
     nodes: [
       // Flux, Qwen-Image-Edit, Ernie, faceswap toolkits.
+      // NOTE: node clones are best-effort (see renderNodeClones in cli.ts).
+      // A 404/private repo logs a warning and the build continues, so dead
+      // URLs below won't abort the deploy — but they should still be fixed
+      // when a known-good replacement exists.
       { url: 'https://github.com/kijai/ComfyUI-FluxTrainer', hasRequirements: false },
       { url: 'https://github.com/city96/ComfyUI-GGUF', hasRequirements: false },
-      { url: 'https://github.com/kijai/ComfyUI-QwenImage', hasRequirements: true },
-      { url: 'https://github.com/ZHO6199/comfyui-ernie', hasRequirements: false },
-      { url: 'https://github.com/AIFSH/ComfyUI-FLUX.1-Tools', hasRequirements: true },
+      // kijai/ComfyUI-QwenImage was 404 as of 2026-07; Qwen-Image-Edit GGUF
+      // model still loads via the GGUF loader + city96 node, so the clone is
+      // dropped rather than replaced with an unverified fork.
       { url: 'https://github.com/shadowcz007/comfyui-mixlab-nodes', hasRequirements: true },
-      { url: 'https://github.com/Bingsu/adetailer', hasRequirements: false },
     ],
     models: [
       // Flux dev (fp8) for faceswap / image-edit workflows.
@@ -88,8 +91,9 @@ export const PACKS: Record<string, WorkflowPackDef> = {
   upscaling: {
     nodes: [
       { url: 'https://github.com/kijai/ComfyUI-SUPIR', hasRequirements: true },
-      { url: 'https://github.com/kijai/ComfyUI-seedVR', hasRequirements: true },
-      { url: 'https://github.com/KiterUN/ComfyUI-SUPIR-Wrapper', hasRequirements: true },
+      // kijai/ComfyUI-seedVR + KiterUN/ComfyUI-SUPIR-Wrapper were 404 as of
+      // 2026-07. numz/ComfyUI-SeedVR2_VideoUpscaler is the active SeedVR2 node.
+      { url: 'https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler', hasRequirements: true },
     ],
     models: [
       // SUPIR vision + sd model.
