@@ -64,62 +64,68 @@ PERSISTENT_DIRS = {
 
 
 def _link_to_volume(name, comfy_path, vol_path, image_baseline=None):
-    """Symlink comfy_path -> vol_path, seeding vol_path from the image on first boot.
+    """Symlink comfy_path -> vol_path, merging image-baked entries into the volume.
 
-    On a fresh volume the vol subdir is empty. The image has baked-in baseline
-    contents for custom_nodes (the git-cloned nodes) and user (default workflows).
-    We copy those into the volume once, so the volume becomes the source of truth
-    and subsequent Manager installs / saved workflows layer on top persistently.
+    The volume is the source of truth (so Manager installs + saved workflows
+    persist). The image bakes in baseline contents for custom_nodes (the
+    git-cloned nodes) and user (default workflows). On every boot we MERGE:
+    any baseline entry that is MISSING from the volume gets copied in. Entries
+    that already exist on the volume are left untouched (Manager installs,
+    user edits, etc. win).
 
-    Re-seed safety: if the vol dir is empty AND image_baseline is given, we copy
-    the baseline in even when comfy_path is already a symlink (this is the path
-    taken after reset_custom_nodes wipes the volume). Without this, a wiped volume
-    would stay empty forever because the early `is_symlink()` return skips seeding.
+    This merge-on-boot fixes the "stale partial volume" bug: if an earlier
+    deploy aborted mid-build (e.g. a node clone 404'd before the skip-on-fail
+    fix), the volume was seeded with a partial node set and re-seed never fired
+    because the volume wasn't empty. Now every cold start backfills whatever
+    the image has that the volume is missing — self-healing.
     """
     comfy = Path(comfy_path)
     volp = Path(vol_path)
     volp.mkdir(parents=True, exist_ok=True)
 
-    vol_is_empty = not any(volp.iterdir())
-
-    # Re-seed path: volume empty + we have a baseline to copy from.
-    # This handles the post-reset case where comfy_path is already a symlink
-    # to the (now empty) volume — we must repopulate before returning.
-    if vol_is_empty and image_baseline is not None:
-        baseline = Path(image_baseline)
-        if baseline.exists() and baseline.is_dir():
-            for entry in baseline.iterdir():
-                dest = volp / entry.name
-                if dest.exists():
-                    continue
-                try:
-                    shutil.copytree(entry, dest, symlinks=True)
-                except (OSError, shutil.Error):
-                    pass  # non-fatal — best-effort seed
-            print(f"  PERSIST: re-seeded {name} from image baseline")
-
-    # If comfy_path is already a symlink, the link is in place — done.
-    if comfy.is_symlink():
-        return
-
-    # First boot (not yet symlinked): seed the volume from the on-image dir if
-    # we didn't already via the baseline path above.
-    if vol_is_empty and comfy.exists() and comfy.is_dir():
-        for entry in comfy.iterdir():
+    def _merge_from(src_dir):
+        """Copy every entry in src_dir that's missing from volp. Returns count."""
+        added = 0
+        for entry in src_dir.iterdir():
             dest = volp / entry.name
             if dest.exists():
                 continue
             try:
                 shutil.copytree(entry, dest, symlinks=True)
+                added += 1
             except (OSError, shutil.Error):
                 pass  # non-fatal — best-effort seed
+        return added
+
+    added_total = 0
+    # Merge from the image baseline first (the canonical baked-in set).
+    if image_baseline is not None:
+        baseline = Path(image_baseline)
+        if baseline.exists() and baseline.is_dir():
+            added_total += _merge_from(baseline)
+
+    # If comfy_path is already a symlink, the link is in place — we're done
+    # after the merge (the merge ran against the volume, which is what the
+    # symlink points at).
+    if comfy.is_symlink():
+        if added_total:
+            print(f"  PERSIST: {name} backfilled {added_total} missing entr{'y' if added_total == 1 else 'ies'} from image")
+        return
+
+    # First boot (not yet symlinked): also seed from the on-image comfy_path
+    # dir (same content as the baseline, but this is the pre-snapshot source).
+    if comfy.exists() and comfy.is_dir():
+        added_total += _merge_from(comfy)
 
     # Replace the on-image dir with a symlink to the volume.
     if comfy.exists() or comfy.is_dir():
         shutil.rmtree(str(comfy), ignore_errors=True)
     try:
         comfy.symlink_to(volp)
-        print(f"  PERSIST: {name}  {comfy_path} -> {vol_path}")
+        msg = f"  PERSIST: {name}  {comfy_path} -> {vol_path}"
+        if added_total:
+            msg += f"  (seeded {added_total} entr{'y' if added_total == 1 else 'ies'})"
+        print(msg)
     except OSError:
         # Symlink failed (rare) — fall back to using the volume path directly.
         print(f"  PERSIST WARN: could not symlink {name}, using in-place dir")
