@@ -33,7 +33,7 @@ graph TD
     subgraph "Render + deploy (target-dispatched)"
         TC["comfyapp.py.tpl<br/>+ packs.ts"]
         TA["aitoolkit_app.py.tpl<br/>+ aitoolkit-config/"]
-        R["renderTemplate(cfg)<br/>dispatches by cfg.target<br/>ast.parse validation"]
+        R["renderTemplate(cfg)<br/>dispatches by cfg.target<br/>JS→Python regression guard"]
         MCLI["modal CLI<br/>(deploy / run / app list)"]
     end
 
@@ -41,14 +41,14 @@ graph TD
         APPC["modal.App<br/>(appName)"]
         IMGC["Image: ComfyUI + nodes + workflows"]
         UIC["@modal.web_server :8188"]
-        VLC["Volume: wan-models<br/>+ reset_custom_nodes / wipe_account_dirs"]
+        VLC["Volume: wan-models-{accountId}<br/>+ reset_custom_nodes"]
     end
 
     subgraph "Modal cloud — AI Toolkit (target=ai-toolkit)"
         APPA["modal.App<br/>(appName)"]
         IMGA["Image: ai-toolkit + Next.js UI + configs"]
         UIA["@modal.web_server :8675"]
-        VLA["Volume: ai-toolkit-data<br/>atomic-save + periodic commit"]
+        VLA["Volume: ai-toolkit-{accountId}<br/>atomic-save + periodic commit"]
     end
 
     U -->|HTTP /api| W
@@ -192,10 +192,14 @@ CONFIG = {
 ### Volume + persistence
 
 ```python
-vol = modal.Volume.from_name("wan-models", create_if_missing=True)
+vol = modal.Volume.from_name("{{VOLUME_NAME}}", create_if_missing=True)
 CACHE_DIR = "/cache"
 VOL_MODELS = f"{CACHE_DIR}/models"
 ```
+
+The `{{VOLUME_NAME}}` placeholder is rendered per account by `volumeNameFor(cfg)` in `cli.ts` —
+it becomes `wan-models-{accountId}` (ComfyUI) or `ai-toolkit-{accountId}` (AI Toolkit), so each
+Modal account gets a fully isolated volume. See [CONFIGURATION.md](CONFIGURATION.md#deploy-target-which-app-gets-deployed).
 
 Four directories are symlinked onto the volume so they survive cold starts:
 
@@ -223,7 +227,7 @@ Four directories are symlinked onto the volume so they survive cold starts:
 | `download_all_models()` | Prefetch all models to the volume (the "Prefetch" step). First run 15–30 min. | none (CPU) | Yes |
 | `ui()` | `@modal.web_server(8188)`. Symlinks models + persistent dirs, spawns ComfyUI, **blocks until it answers HTTP** (closes the "URL handed out before ComfyUI is ready" gap). | `CONFIG["gpu"]` | Yes |
 | `reset_custom_nodes()` | Wipes `/cache/custom_nodes` back to image baseline. Next cold start re-seeds. | none | Yes |
-| `wipe_account_dirs()` | Wipes `custom_nodes`/`input`/`output`/`user` for an account switch. Models kept. | none | Yes |
+| `wipe_account_dirs()` | *(Legacy / unused.)* Previously wiped `custom_nodes`/`input`/`output`/`user` for an account switch. With per-account volumes this is no longer needed — switch-account is now a pure token swap. Kept in the template for now; safe to remove. | none | Yes |
 | `main()` (local_entrypoint) | Runs `download_all_models.remote()` — used by `modal run comfyapp.py`. | — | — |
 
 ### The loading-fix
@@ -238,10 +242,11 @@ until it returns HTTP 200 before returning — so Modal never marks the containe
 A separate template based on the original `aitoolkit_app.py` — not a ComfyUI node. Rendered when
 `cfg.target === 'ai-toolkit'`. Key differences from the ComfyUI template:
 
-- **Volume:** `ai-toolkit-data` (vs `wan-models`), mounted at `/data`.
+- **Volume:** `ai-toolkit-{accountId}` (vs `wan-models-{accountId}` for ComfyUI), mounted at `/data`.
 - **Port:** 8675 (Next.js UI) vs 8188.
-- **Secrets:** `huggingface` + `ai-toolkit-auth` (the latter auto-created by
-  `ensureAiToolkitAuthSecret` before deploy; the token is logged to the SSE stream).
+- **Secrets:** `huggingface` + `ai-toolkit-auth`. The `ai-toolkit-auth` token is minted once
+  on first deploy, **persisted per account** in `~/.easymodal/config.json` (`aiToolkitAuthToken`),
+  and reused on every subsequent deploy — so ModHeader config stays stable across redeploys.
 - **Bundled configs:** `templates/aitoolkit-config/*.yml` are base64-inlined into
   `/root/ai-toolkit/config/` via `{{CONFIG_BUNDLE}}`.
 - **Safety patches:** `apply_safety_patches()` runs at web-server startup, before any training code:
@@ -258,9 +263,10 @@ A separate template based on the original `aitoolkit_app.py` — not a ComfyUI n
 | `ui()` | `@modal.web_server(8675)`. Applies patches, symlinks dirs, `prisma db push`, model cache check, launches Next.js UI + cron worker via `concurrently`. | `{{GPU}}` |
 | `main()` (local_entrypoint) | Runs `download_models_remote.spawn()` — used by `modal run aitoolkit_app.py`. | — |
 
-> **Not yet target-supported:** `reset_custom_nodes` and `wipe_account_dirs` exist only in
-> `comfyapp.py.tpl`. The reset-nodes and switch-account routes return a 400 "ComfyUI-only / not
-> yet supported" for AI Toolkit instances rather than crashing a `modal run`.
+> **Target support:** `reset_custom_nodes` is ComfyUI-only (AI Toolkit has no custom_nodes);
+> the reset-nodes route returns a 400 for AI Toolkit instances. **Switch-account works for both
+> targets** — it's now a pure token swap (each account has its own isolated volume, so there's
+> nothing to wipe).
 
 ## Data flow: a deploy
 

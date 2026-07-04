@@ -12,14 +12,20 @@ This document covers every tunable, where it lives, and how to change the defaul
 The first Configure choice is **"What do you want to deploy?"** — this drives which template
 is rendered and which Modal volume/secrets are used.
 
-| Target | Template | Volume | Port | Extra secrets |
-|--------|----------|--------|------|---------------|
-| **ComfyUI** (default) | `comfyapp.py.tpl` | `wan-models` | 8188 | `huggingface` |
-| **AI Toolkit** | `aitoolkit_app.py.tpl` | `ai-toolkit-data` | 8675 | `huggingface` + `ai-toolkit-auth` (auto-generated) |
+| Target | Template | Volume (per account) | Port | Extra secrets |
+|--------|----------|----------------------|------|---------------|
+| **ComfyUI** (default) | `comfyapp.py.tpl` | `wan-models-{accountId}` | 8188 | `huggingface` |
+| **AI Toolkit** | `aitoolkit_app.py.tpl` | `ai-toolkit-{accountId}` | 8675 | `huggingface` + `ai-toolkit-auth` (per-account) |
 
-`ai-toolkit-auth` is auto-created on first AI Toolkit deploy if you haven't set it
-(`ensureAiToolkitAuthSecret` in `accounts/modal.ts`); the generated token is logged to the
-deploy stream so you can access the gated UI.
+**Volumes are namespaced per Modal account** so each account has fully isolated state —
+models, `custom_nodes`, `output`, `input`, and `user` dirs never bleed across accounts. The
+volume name is built by `volumeNameFor(cfg)` in `cli.ts` from `cfg.accountId` (sanitized to
+Modal's `^[a-z0-9-]+$` rule). Switching accounts targets a different volume on the next deploy.
+
+`ai-toolkit-auth` is created on first AI Toolkit deploy (`ensureAiToolkitAuthSecret` in
+`accounts/modal.ts`), **persisted per account** in `~/.easymodal/config.json`
+(`aiToolkitAuthToken`), and reused on every subsequent deploy so your ModHeader config stays
+stable. The token is logged to the deploy stream on first deploy only.
 
 ## At-a-glance: deploy-time options (the Configure step)
 
@@ -108,6 +114,7 @@ step (`GET /api/workflows`) with per-file download.
 | Placeholder | Replaced with | Rendered by |
 |-------------|---------------|-------------|
 | `{{APP_NAME}}` | app name string | direct `.replaceAll` |
+| `{{VOLUME_NAME}}` | `wan-models-{accountId}` | `volumeNameFor(cfg)` (sanitized) |
 | `{{GPU}}` | GPU type string | direct |
 | `{{MAX_INPUTS}}` | int | direct |
 | `{{TIMEOUT_SECONDS}}` | int | direct |
@@ -122,6 +129,7 @@ step (`GET /api/workflows`) with per-file download.
 | Placeholder | Replaced with | Rendered by |
 |-------------|---------------|-------------|
 | `{{APP_NAME}}` | app name string | direct `.replaceAll` |
+| `{{VOLUME_NAME}}` | `ai-toolkit-{accountId}` | `volumeNameFor(cfg)` (sanitized) |
 | `{{GPU}}` | GPU type string | direct |
 | `{{MEMORY_MB}}` | int | direct |
 | `{{CPU}}` | int | direct |
@@ -137,7 +145,9 @@ commits, Prisma SQLite DB persistence, LTX-2.3 video LoRA). Bundled training con
 > otherwise the expansion lands at the wrong indent or inside a comment, breaking the
 > parenthesized `image = (...)` chain.
 
-The rendered output is validated with `ast.parse` / `compile()` before deploy.
+The rendered output is passed through `assertNoJsTokensInPython()` (a regression guard — see
+**Validation** below) before deploy. `accountId` is required on every `DeployConfig` to derive
+the volume name; the server injects it from the request body's `accountId`.
 
 ## Accounts
 
@@ -159,9 +169,13 @@ Stored in `~/.easymodal/config.json` (0600 plaintext). Each account:
   before every deploy/reset/switch (`activateAccountProfile`).
 - HuggingFace tokens are pushed to a Modal secret named `huggingface` (`modal secret put huggingface
   HF_TOKEN=…`) on the active account — idempotent, so switching accounts overwrites it.
-- **Account switch** (`POST /api/instances/:id/switch-account`) wipes `custom_nodes`/`input`/
-  `output`/`user` on the volume so the next account starts clean. Models are kept (account-independent,
-  large). Use this when handing off between accounts.
+- **AI Toolkit auth tokens** are stored per account (`aiToolkitAuthToken`) and reused on every
+  AI Toolkit deploy so ModHeader config stays stable.
+- **Account switch** (`POST /api/instances/:id/switch-account`) is now a pure token swap — it
+  activates the new account's Modal profile and rebinds the instance. No volume wipe is needed
+  because each account has its own isolated volume (`wan-models-{accountId}` /
+  `ai-toolkit-{accountId}`); the new account's next deploy targets a fresh volume with zero
+  bleed from the previous account. Works for both ComfyUI and AI Toolkit.
 
 Override the config directory with `EASYMODAL_CONFIG_DIR=/some/path`.
 
@@ -186,11 +200,38 @@ These are the values inside `comfyapp.py.tpl` itself (not user-tunable from the 
 | Web server startup timeout | 1800 s | `startup_timeout=1800` |
 | `download_all_models` timeout | 3600 s | `@app.function(…, timeout=3600)` |
 | Health-poll deadline (loading-fix) | 300 s | inside `ui()` |
-| Volume name | `wan-models` | `modal.Volume.from_name("wan-models", create_if_missing=True)` |
+| Volume name | `wan-models-{accountId}` | `modal.Volume.from_name("{{VOLUME_NAME}}", create_if_missing=True)` — rendered per account |
 | Volume mount point | `/cache` | `volumes={CACHE_DIR: vol}` |
 | HuggingFace secret name | `huggingface` | `modal.Secret.from_name("huggingface")` |
 
 To change these, edit `apps/server/templates/comfyapp.py.tpl` directly (they are not surfaced as UI options).
+
+## Validation & deploy safety
+
+EasyModal runs several guards around the deploy so failures are loud and actionable rather
+than silent hangs:
+
+- **JS→Python regression guard** (`assertNoJsTokensInPython` in `cli.ts`) — after rendering,
+  the source is stripped of comments and string literals, then scanned for bare JS literals
+  (`true`, `false`, `null`, `undefined`). These would be syntactically valid Python names
+  that pass `ast.parse` but throw `NameError` at runtime (the `false` vs `False` bug that
+  broke image-edit deploys). The guard throws at render time with the offending token.
+- **Pre-flight HF secret check** (`verifyHuggingFaceSecret` in `accounts/modal.ts`) — before
+  `modal deploy`, the deploy route runs `modal secret list` and confirms a `huggingface`
+  secret exists on the active account. Without it, model downloads silently fall back to
+  anonymous HF and hang or 401 mid-build. The check fails the deploy fast with an actionable
+  "set your HF token in Keys" message.
+- **Deploy timeout** (90 min, `DEPLOY_TIMEOUT_MS` in `cli.ts`) — `modal deploy` has no
+  user-facing timeout, so a stuck model download would leave the UI at "downloading" forever.
+  The spawned child is SIGTERM'd at the deadline and the deploy is marked failed with a
+  timeout message.
+- **Failure = exit code only** — stderr lines containing "error" / "failed" / "exception"
+  are surfaced as warnings but no longer flip the deploy to `failed`, because pip/Python/Comfy
+  emit benign lines matching those words ("0 errors", deprecation warnings). The authoritative
+  failure signal is `modal deploy` exiting non-zero.
+- **UTF-8 forced on every Modal CLI spawn** (`modalEnv()` in `modal/env.ts`) — sets
+  `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, and locale env vars so the child never inherits
+  the system ANSI codepage (which on Windows crashes with `'charmap' codec can't encode`).
 
 ## Per-environment overrides
 

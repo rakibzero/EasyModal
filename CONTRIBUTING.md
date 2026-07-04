@@ -42,8 +42,19 @@ dir, and deployed from there. Compute stays on the user's Modal account.
   what-to-do-next, visible errors with a fix suggestion. No jargon.
 - **Never commit secrets.** `.gitignore` already excludes `.env` and `.launcher.env`.
   Keys live in `~/.easymodal/` (0600), not the repo.
-- **The comfyapp.py template is the product's heart.** Changes there affect every user's
-  deploy — test the render (`renderTemplate` → `ast.parse`) before committing.
+- **The comfyapp.py / aitoolkit_app.py templates are the product's heart.** Changes there affect
+  every user's deploy. Two guards run on every render:
+  - `assertNoJsTokensInPython(source)` in `cli.ts` — strips comments + string literals, then
+    fails if it finds a bare `true`/`false`/`null`/`undefined` (these are syntactically valid
+    Python names that pass `ast.parse` but throw `NameError` at runtime — the bug that broke
+    image-edit deploys). If you add a new interpolation that touches a JS value, verify the
+    guard still passes by rendering and compiling:
+    ```bash
+    node --input-type=module -e "import('./apps/server/dist/modal/cli.js').then(m=>console.log('ok'))"
+    python3 -c "import ast; ast.parse(open('/tmp/rendered.py').read())"
+    ```
+  - Every Modal CLI spawn must use `modalEnv()` from `modal/env.ts` (forces UTF-8) — never
+    `env: process.env` directly, which reintroduces the Windows charmap crash.
 
 ## Reporting issues
 

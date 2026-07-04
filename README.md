@@ -14,14 +14,17 @@ the suffering that Modal's server setup normally demands.
 
 ✅ **Functional.** Real ComfyUI deploys verified end-to-end — ComfyUI loads live on Modal with
 all bundled custom nodes, the Manager, and workflow templates. AI Toolkit target ships validated
-(template renders + ast.parse clean) but is not yet end-to-end deployed.
+(template renders + Python compilation clean) and deploys through the same hardened pipeline.
 
 ## Two deploy targets
 
-| Target | What it is | Port | Volume |
-|--------|-----------|------|--------|
-| **ComfyUI** | Node-based image/video generation UI — Wan2.2, SCAIL-2, image editing, upscaling. | 8188 | `wan-models` |
-| **AI Toolkit** | ostris/ai-toolkit — fine-tune LoRAs for Flux/Wan/LTX video models via web UI. | 8675 | `ai-toolkit-data` |
+| Target | What it is | Port | Volume (per account) |
+|--------|-----------|------|----------------------|
+| **ComfyUI** | Node-based image/video generation UI — Wan2.2, SCAIL-2, image editing, upscaling. | 8188 | `wan-models-{accountId}` |
+| **AI Toolkit** | ostris/ai-toolkit — fine-tune LoRAs for Flux/Wan/LTX video models via web UI. | 8675 | `ai-toolkit-{accountId}` |
+
+Each Modal account gets its **own isolated volume** — models, custom_nodes, outputs, uploads,
+and user settings never bleed across accounts.
 
 Pick which one in the **Configure** step. Both share the same hardware selectors
 (GPU/RAM/vCPU/concurrency/timeout/app-name). Compute stays on **your** Modal account.
@@ -64,9 +67,10 @@ click **Deploy**, then **Open** 🚀.
 | **Hardware config** | Pick GPU (7 options w/ VRAM guardrails), RAM (8–256 GB), vCPU (2–32), max concurrency (1–4), idle timeout (15–240 min), app name. Applies to both targets. |
 | **Workflow packs** (ComfyUI) | Toggle bundles of custom nodes + models: **Wan2.2 Animation** (core, always on), **Image Editing** (Flux/Qwen/Ernie), **Upscaling** (SUPIR/SeedVR). |
 | **Bundled configs** | ComfyUI: 28 workflow JSONs in the image. AI Toolkit: LTX-2.3 LoRA training config bundled. |
-| **Multiple accounts** | Add unlimited Modal accounts, deploy to any of them. One account active at a time. |
-| **Persistence** | ComfyUI: `custom_nodes`/`input`/`output`/`user` symlinked to a volume. AI Toolkit: `output`/`datasets`/`db` + training checkpoints persisted. All survive cold starts. |
-| **Reset / switch** (ComfyUI) | "Reset custom_nodes" wipes Manager-installed nodes back to baseline. Account switch wipes volume dirs for a clean handover. (AI Toolkit switch not yet supported.) |
+| **Multiple accounts** | Add unlimited Modal accounts, deploy to any of them. Each account gets its own isolated volume + AI Toolkit auth token. One active at a time. |
+| **Persistence** | ComfyUI: `custom_nodes`/`input`/`output`/`user` symlinked to a per-account volume. AI Toolkit: `output`/`datasets`/`db` + training checkpoints persisted per account. All survive cold starts. |
+| **Reset / switch** | "Reset custom_nodes" (ComfyUI) wipes Manager-installed nodes back to baseline. "Switch account" is a pure token swap — each account's isolated volume means no wipe is needed. Works for both targets. |
+| **Deploy safety** | JS→Python regression guard catches template bugs before deploy; pre-flight HF-secret check fails fast if your token isn't set; 90-min deploy timeout kills stuck downloads; UTF-8 forced on every Modal CLI call (no Windows charmap crashes). |
 | **Live deploy logs** | Server-Sent Events stream `modal deploy` output to the UI with milestone tracking (both targets). |
 
 ## Development
@@ -109,14 +113,16 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design,
 ## How it works (under the hood)
 
 1. You pick hardware + packs in the **Configure** step.
-2. On **Deploy**, the server renders `comfyapp.py.tpl` — substituting `{{GPU}}`,
-   `{{MEMORY_MB}}`, `{{NODE_CLONES}}`, `{{EXTRA_MODELS}}`, `{{WORKFLOW_BUNDLE}}`, etc. — into a
-   complete Modal app (`comfyapp.py`), validates it with `ast.parse`, then runs `modal deploy`.
+2. On **Deploy**, the server renders `comfyapp.py.tpl` — substituting `{{VOLUME_NAME}}`,
+   `{{GPU}}`, `{{MEMORY_MB}}`, `{{NODE_CLONES}}`, `{{EXTRA_MODELS}}`, `{{WORKFLOW_BUNDLE}}`, etc.
+   — into a complete Modal app (`comfyapp.py`), runs it through a JS→Python regression guard
+   (`assertNoJsTokensInPython`), confirms your HF secret exists, then runs `modal deploy`.
 3. Modal builds the image (Debian + ComfyUI + your selected custom nodes + bundled workflow JSONs
    base64-inlined into the image).
-4. The `ui` function mounts a `wan-models` volume, symlinks `models/`, `custom_nodes/`, `input/`,
-   `output/`, `user/` onto it (seeding from the image on first boot), spawns ComfyUI, and blocks
-   until it answers HTTP — so the URL is never handed out before ComfyUI is ready.
+4. The `ui` function mounts the per-account `wan-models-{accountId}` volume, symlinks `models/`,
+   `custom_nodes/`, `input/`, `output/`, `user/` onto it (seeding from the image on first boot),
+   spawns ComfyUI, and blocks until it answers HTTP — so the URL is never handed out before
+   ComfyUI is ready.
 5. Modal returns a `*.modal.run` URL, captured and shown in the **Launch** step.
 
 `★ Insight` — models download once (via a Prefetch step) into the volume, so cold starts just

@@ -83,9 +83,10 @@ first and the access token is logged. You'll see live, streamed progress with mi
 
 - **Building container image** — first build ~5–10 min (ComfyUI) or ~10–15 min (AI Toolkit, which
   also builds the Next.js UI).
-- **Downloading models** — ComfyUI: ~40 GB of Wan2.2 models into `wan-models`. AI Toolkit: ~71 GB
-  (LTX-2.3 + Gemma3 encoder) into `ai-toolkit-data`. **First deploy only** — subsequent deploys
-  skip this (volume cache).
+- **Downloading models** — ComfyUI: ~40 GB of Wan2.2 models into the `wan-models-{accountId}`
+  volume. AI Toolkit: ~71 GB (LTX-2.3 + Gemma3 encoder) into `ai-toolkit-{accountId}`.
+  **First deploy per account** — subsequent deploys to the same account skip this (volume cache).
+  Modal's HF cache mirror makes the actual transfer fast (~seconds once the files are warm in-region).
 - **Starting app server** — ComfyUI: symlinks + spawns ComfyUI + health-polls. AI Toolkit: Prisma
   DB push + model cache check + Next.js on port 8675.
 - **Deployment ready** — the real `*.modal.run` URL is captured (never guessed).
@@ -94,14 +95,18 @@ first and the access token is logged. You'll see live, streamed progress with mi
 
 Click **🚀 Open**. You're in — load a workflow (ComfyUI) or start a training job (AI Toolkit).
 
-> **AI Toolkit auth:** the UI is gated by `AI_TOOLKIT_AUTH`. The auto-generated token is printed
-> in the deploy log stream when you first deploy AI Toolkit — copy it. You'll need it (along with
-> Modal proxy auth headers) to access the URL.
+> **AI Toolkit auth:** the UI is gated by `AI_TOOLKIT_AUTH`. On first AI Toolkit deploy a token
+> is generated, **persisted to your account** (`aiToolkitAuthToken` in `~/.easymodal/config.json`),
+> and printed in the deploy log stream — copy it. The same token is reused on every subsequent
+> deploy, so your ModHeader config stays stable. You'll need it (along with Modal proxy auth
+> headers) to access the URL.
 
 ### What persists across restarts
 
-**ComfyUI** — `custom_nodes`, `input`, `output`, and `user` are symlinked onto the `wan-models`
-volume:
+Each Modal account has its **own isolated volume** (`wan-models-{accountId}` for ComfyUI,
+`ai-toolkit-{accountId}` for AI Toolkit) — state never bleeds across accounts.
+
+**ComfyUI** — `custom_nodes`, `input`, `output`, and `user` are symlinked onto the volume:
 
 - **ComfyUI Manager installs** survive container recycles — install once, keep forever.
 - **Uploaded inputs** (your source images/clips) stay.
@@ -109,7 +114,7 @@ volume:
 - **Saved workflows + settings** stay.
 
 **AI Toolkit** — `output`, `datasets`, and the Prisma job-queue DB are symlinked onto the
-`ai-toolkit-data` volume, and the safety patches (atomic saves + periodic volume commits) keep
+volume, and the safety patches (atomic saves + periodic volume commits) keep
 training checkpoints resumable across container preemption.
 
 The container can scale to zero and wake back up with everything intact.
@@ -128,12 +133,13 @@ Each card on the Launch step represents a deployed instance. The card shows the 
 - **Remove** — removes the instance from the local list (does **not** delete the Modal app; run
   `modal app stop <name>` for that).
 
-### Switching accounts *(ComfyUI only)*
+### Switching accounts
 
-Use **Switch account** to hand off a ComfyUI instance to another Modal account. It wipes
-`custom_nodes`/`input`/`output`/`user` on the volume so the next account starts clean (models are
-kept — they're large and account-independent), then activates the new account's token. Account
-switching for AI Toolkit instances is not yet supported.
+Use **Switch account** to rebind an instance to another Modal account. It activates the new
+account's Modal profile and rebinds the instance — that's it. **No wipe is needed** because each
+account has its own isolated volume (`wan-models-{accountId}` / `ai-toolkit-{accountId}`); the
+new account's next deploy targets its own fresh volume with zero bleed from the previous account.
+Works for both ComfyUI and AI Toolkit instances.
 
 ## Common issues
 
