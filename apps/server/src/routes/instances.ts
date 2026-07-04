@@ -318,7 +318,9 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const body = (req.body ?? {}) as { repo?: string; filepath?: string; subdir?: string };
     const rawRepo = (body.repo ?? '').trim();
     const filepath = (body.filepath ?? '').trim();
-    const subdir = (body.subdir ?? '').trim();
+    // Normalize subdir: strip whitespace, lowercase, drop any trailing slash
+    // so "Checkpoints/" from a sloppy client becomes "checkpoints".
+    const subdir = (body.subdir ?? '').trim().toLowerCase().replace(/\/+$/, '');
     if (!rawRepo || !filepath || !subdir) {
       return reply.code(400).send({ ok: false, message: 'repo, filepath, and subdir are all required.' });
     }

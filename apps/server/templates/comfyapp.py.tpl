@@ -391,6 +391,9 @@ def download_model(repo, filepath, subdir):
         "upscale_models", "sam", "detection", "nlf", "configs", "style_models",
         "gligen", "hypernetworks", "vae_approx", "custom_nodes",
     }
+    # Defense-in-depth: normalize even though the route already does. A caller
+    # hitting the function directly shouldn't be able to bypass with case/slash.
+    subdir = (subdir or "").strip().lower().rstrip("/")
     # Normalize common aliases (lora -> loras, clip -> text_encoders).
     alias = {"lora": "loras", "clip": "text_encoders"}
     subdir = alias.get(subdir, subdir)
