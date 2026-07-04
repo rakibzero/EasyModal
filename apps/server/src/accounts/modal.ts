@@ -96,8 +96,11 @@ export async function activateAccountProfile(
 /** Create or replace the `huggingface` Modal secret with the given HF token. */
 export async function setHuggingFaceSecret(hfToken: string): Promise<{ ok: boolean; message: string }> {
   try {
-    // `modal secret put` is idempotent — it creates or replaces.
-    await execFileP('modal', ['secret', 'put', 'huggingface', `HF_TOKEN=${hfToken}`], {
+    // `modal secret create --force` is the idempotent form (create-or-replace).
+    // Older `modal` versions used `modal secret put`; current versions renamed
+    // it to `create` and made overwrite require `--force`. Without --force, the
+    // second call fails with "secret already exists" — so always pass it.
+    await execFileP('modal', ['secret', 'create', '--force', 'huggingface', `HF_TOKEN=${hfToken}`], {
       timeout: 20_000,
       env: modalEnv(),
     });
@@ -154,7 +157,7 @@ export async function ensureAiToolkitAuthSecret(
     ? userToken.trim()
     : `em_${randomBytes(32).toString('base64url')}`;
   try {
-    await execFileP('modal', ['secret', 'put', 'ai-toolkit-auth', `AI_TOOLKIT_AUTH=${token}`], {
+    await execFileP('modal', ['secret', 'create', '--force', 'ai-toolkit-auth', `AI_TOOLKIT_AUTH=${token}`], {
       timeout: 20_000,
       env: modalEnv(),
     });
