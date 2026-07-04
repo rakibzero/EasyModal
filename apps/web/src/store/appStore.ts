@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { DeployConfig, LogEvent, InstanceStatus } from '@easymodal/shared';
 
-export type StepId = 'setup' | 'keys' | 'configure' | 'workflows' | 'deploy' | 'launch';
+export type StepId = 'setup' | 'keys' | 'configure' | 'workflows' | 'models' | 'deploy' | 'launch';
 
 /** Default deploy config surfaced in the Configure step. */
 export const DEFAULT_CONFIG: DeployConfig = {

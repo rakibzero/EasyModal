@@ -365,6 +365,65 @@ def main():
     print("\nDone! Models cached in '{{VOLUME_NAME}}' volume.")
 
 
+@app.function(volumes={CACHE_DIR: vol}, secrets=[modal.Secret.from_name("huggingface")], timeout=1800)
+def download_model(repo, filepath, subdir):
+    """Download a single HuggingFace model file into models/<subdir>/ on the volume.
+
+    Invoked from the UI's "Models" step — the user pastes a HF repo + filename
+    and picks which models/ subdir it lands in. Downloads via huggingface_hub
+    (Modal's HF mirror makes it fast), hard-links into the right ComfyUI models
+    path, and commits the volume so it survives cold starts. Idempotent: if the
+    file already exists at the destination, returns immediately.
+
+    Returns a dict with the destination path + size so the caller can confirm.
+    """
+    from huggingface_hub import hf_hub_download
+
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
+
+    # Whitelist the subdir so a caller can't write outside models/ (e.g. into
+    # custom_nodes or worse). These match ComfyUI's standard model categories.
+    allowed = {
+        "checkpoints", "loras", "lora", "unet", "diffusion_models", "vae",
+        "text_encoders", "clip_vision", "clip", "embeddings", "controlnet",
+        "upscale_models", "sam", "detection", "nlf", "configs", "style_models",
+        "gligen", "hypernetworks", "vae_approx", "custom_nodes",
+    }
+    # Normalize common aliases (lora -> loras, clip -> text_encoders).
+    alias = {"lora": "loras", "clip": "text_encoders"}
+    subdir = alias.get(subdir, subdir)
+    if subdir not in allowed:
+        return {"ok": False, "error": f"subdir '{subdir}' not allowed. Pick one of: {sorted(allowed)}"}
+
+    comfy_models = Path(VOL_MODELS)
+    dest_dir = comfy_models / subdir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    filename = Path(filepath).name
+    dest = dest_dir / filename
+
+    if dest.exists():
+        size_gb = dest.stat().st_size / 1e9
+        print(f"EXISTS: {subdir}/{filename} ({size_gb:.1f} GB) — skipping")
+        vol.commit()
+        return {"ok": True, "skipped": True, "dest": str(dest), "size_gb": round(size_gb, 2)}
+
+    print(f"Downloading {repo}/{filepath} -> models/{subdir}/{filename} ...")
+    try:
+        src = hf_hub_download(repo_id=repo, filename=filepath, cache_dir=CACHE_DIR)
+        try:
+            os.link(src, dest)  # hard link (fast, same filesystem as the cache)
+        except OSError:
+            shutil.copy2(src, dest)  # fallback if cross-device or unsupported
+        size_gb = dest.stat().st_size / 1e9
+        print(f"HARD: {subdir}/{filename} ({size_gb:.1f} GB)")
+        vol.commit()
+        return {"ok": True, "dest": str(dest), "size_gb": round(size_gb, 2)}
+    except Exception as exc:
+        return {"ok": False, "error": f"download failed: {exc}"}
+
+
 @app.function(volumes={CACHE_DIR: vol}, timeout=300)
 def reset_custom_nodes():
     """Wipe Manager-installed custom_nodes back to the image baseline.

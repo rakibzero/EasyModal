@@ -11,6 +11,7 @@ const STEPS: Step[] = [
   { id: 'keys', label: 'Keys', help: 'Add your Modal + HuggingFace tokens' },
   { id: 'configure', label: 'Configure', help: 'Pick GPU, RAM, CPU + workflow packs' },
   { id: 'workflows', label: 'Workflows', help: 'Browse bundled workflow files' },
+  { id: 'models', label: 'Models', help: 'Download HF models straight to your volume' },
   { id: 'deploy', label: 'Deploy', help: 'Build ComfyUI on Modal' },
   { id: 'launch', label: 'Launch', help: 'Open your ComfyUI URL' },
 ];

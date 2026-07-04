@@ -290,6 +290,143 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * Download a single HF model file into models/<subdir>/ on the instance's
+   * volume. Renders the instance's template (so download_model exists), writes
+   * a one-off caller, and runs `modal run`. Progress streams over SSE.
+   *
+   * Body: { repo: string, filepath: string, subdir: string }
+   *   repo      — HF repo id ("user/model") OR a full hf.co URL (parsed).
+   *   filepath  — file path within the repo (e.g. "flux1-dev-fp8.safetensors"
+   *               or "split_files/vae/wan2.1_vae.safetensors").
+   *   subdir    — which models/ subdir it lands in (whitelisted in the template).
+   */
+  app.post('/api/instances/:id/download-model', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const inst = liveInstances.get(id) ?? getPersistedInstance(id);
+    if (!inst) return reply.code(404).send({ ok: false, message: 'Instance not found.' });
+
+    // download_model is ComfyUI-only (lives in comfyapp.py.tpl). AI Toolkit has
+    // its own HF cache layout under /data/hf-cache and a different downloader.
+    const target = inst.config.target ?? 'comfyui';
+    if (target === 'ai-toolkit') {
+      return reply.code(400).send({
+        ok: false,
+        message: 'Manual model download is a ComfyUI-only feature for now. This is an AI Toolkit instance.',
+      });
+    }
+
+    const body = (req.body ?? {}) as { repo?: string; filepath?: string; subdir?: string };
+    const rawRepo = (body.repo ?? '').trim();
+    const filepath = (body.filepath ?? '').trim();
+    const subdir = (body.subdir ?? '').trim();
+    if (!rawRepo || !filepath || !subdir) {
+      return reply.code(400).send({ ok: false, message: 'repo, filepath, and subdir are all required.' });
+    }
+
+    // Parse the repo input — accept "user/model", "user/model:filename",
+    // https://huggingface.co/user/model/resolve/main/path, or hf.co URLs.
+    let repo = rawRepo;
+    let fileFromUrl = '';
+    // Match hf.co URLs — escape every / inside the regex so tsc doesn't read it
+    // as the regex terminator. [^/]+ becomes [^\/]+.
+    const urlMatch = rawRepo.match(/^https?:\/\/(?:www\.)?(?:huggingface\.co|hf\.co)\/([^\/]+\/[^\/]+)(?:\/.*)?$/);
+    if (urlMatch) {
+      repo = urlMatch[1];
+      // /resolve/main/<path> or /blob/main/<path>
+      const pathMatch = rawRepo.match(/\/(?:resolve|blob)\/[^\/]+\/(.+)$/);
+      if (pathMatch) fileFromUrl = pathMatch[1];
+    } else {
+      // "user/model:filename" shorthand
+      const colonMatch = rawRepo.match(/^([^\/]+\/[^\/:]+):(.+)$/);
+      if (colonMatch) {
+        repo = colonMatch[1];
+        fileFromUrl = colonMatch[2];
+      }
+    }
+    const finalFile = filepath || fileFromUrl;
+    if (!finalFile) {
+      return reply.code(400).send({ ok: false, message: 'Could not determine the file path. Pass filepath explicitly.' });
+    }
+
+    // Reuse the instance's stored config so the volume name matches the app.
+    const cfg: DeployConfig = { ...inst.config, accountId: inst.accountId };
+
+    const account = getAccount(inst.accountId);
+    if (!account) {
+      return reply.code(404).send({ ok: false, message: 'Account for this instance no longer exists.' });
+    }
+
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { spawn } = await import('node:child_process');
+    const workdir = mkdtempSync(join(tmpdir(), 'easymodal-dlmodel-'));
+    writeFileSync(join(workdir, 'comfyapp.py'), renderTemplate(cfg), { mode: 0o600 });
+    // Embed args as a JSON literal to avoid shell-escaping pitfalls with paths
+    // that contain spaces, quotes, or unicode. Read on stdin in the runner.
+    const argsJson = JSON.stringify({ repo, filepath: finalFile, subdir });
+    writeFileSync(
+      join(workdir, 'run_dlmodel.py'),
+      `import json, sys, modal\n` +
+        `args = json.loads(sys.stdin.read())\n` +
+        `app = modal.App.lookup("${inst.config.appName}", create_if_missing=False)\n` +
+        `if app is None:\n` +
+        `    print("APP_NOT_FOUND")\n` +
+        `else:\n` +
+        `    from comfyapp import download_model\n` +
+        `    print(download_model.remote(args["repo"], args["filepath"], args["subdir"]))\n`,
+      { mode: 0o600 },
+    );
+
+    bus.info(
+      `Downloading model ${repo}/${finalFile} -> models/${subdir}/ on "${inst.config.appName}"…`,
+      { instanceId: inst.id },
+    );
+
+    try {
+      await activateAccountProfile(inst.accountId, account.modalTokenId, account.modalTokenSecret);
+    } catch (e) {
+      rmSync(workdir, { recursive: true, force: true });
+      return reply.code(400).send({
+        ok: false,
+        message: `Could not activate account: ${String((e as Error).message || e).slice(0, 200)}`,
+      });
+    }
+
+    return new Promise((resolve) => {
+      // Pass args via stdin (cleaner than argv for paths with spaces/quotes).
+      const child = spawn('modal', ['run', 'run_dlmodel.py'], {
+        cwd: workdir,
+        env: modalEnv(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      child.stdin?.end(argsJson);
+      let out = '';
+      child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));
+      child.stderr?.on('data', (c: Buffer) => (out += c.toString('utf8')));
+      child.on('exit', (code) => {
+        rmSync(workdir, { recursive: true, force: true });
+        if (out.includes('APP_NOT_FOUND')) {
+          bus.info('Model download skipped — app not deployed. Deploy first.', {
+            level: 'warn',
+            instanceId: inst.id,
+          });
+          resolve(reply.code(404).send({ ok: false, message: 'App not deployed yet — deploy first.' }));
+        } else if (code === 0) {
+          bus.info(`Model saved to models/${subdir}/${finalFile.split('/').pop()}.`, {
+            level: 'success',
+            instanceId: inst.id,
+          });
+          resolve({ ok: true, output: out.slice(-500) });
+        } else {
+          bus.info(`Model download failed (exit ${code}).`, { level: 'error', instanceId: inst.id });
+          resolve(reply.code(500).send({ ok: false, message: out.slice(-400) }));
+        }
+      });
+    });
+  });
+
+  /**
    * Switch account for this instance: just swap which Modal account/token the
    * instance is bound to. No volume wipe is needed — each account has its own
    * isolated volume (wan-models-{accountId} / ai-toolkit-{accountId}), so the

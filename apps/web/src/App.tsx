@@ -9,6 +9,7 @@ import { ConfigurePage } from './pages/ConfigurePage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
 import { DeployPage } from './pages/DeployPage';
 import { LaunchPage } from './pages/LaunchPage';
+import { ModelsPage } from './pages/ModelsPage';
 
 export function App() {
   const currentStep = useAppStore((s) => s.currentStep);
@@ -40,6 +41,7 @@ export function App() {
     keys: <KeysPage />,
     configure: <ConfigurePage />,
     workflows: <WorkflowsPage />,
+    models: <ModelsPage />,
     deploy: <DeployPage />,
     launch: <LaunchPage />,
   }[currentStep];
