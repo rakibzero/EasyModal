@@ -344,7 +344,15 @@ def ui():
     print(f"  GPU available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"  GPU: {torch.cuda.get_device_name(0)}")
-        print(f"  VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+        # PyTorch renamed device-properties attribute across versions: older
+        # releases expose .total_mem, current (2.9+) exposes .total_memory.
+        # Use getattr with a fallback so the VRAM log line never crashes the
+        # whole ui() function — which is exactly what happened with a bare
+        # .total_mem on torch 2.9 (AttributeError killed every cold start).
+        _props = torch.cuda.get_device_properties(0)
+        _vram = getattr(_props, "total_memory", None) or getattr(_props, "total_mem", None)
+        if _vram is not None:
+            print(f"  VRAM: {_vram / 1e9:.1f} GB")
     print("=" * 60)
 
     # ── 1. Apply safety patches before any training code runs ──
@@ -423,12 +431,18 @@ def ui():
     }
 
     ui_proc = subprocess.Popen(
-        ["npx", "concurrently",
-         "--restart-tries", "-1",
-         "--restart-after", "1000",
-         "-n", "WORKER,UI",
-         "node", "dist/cron/worker.js",
-         "next", "start", "--port", str(UI_PORT),
+        # IMPORTANT: concurrently takes each command as ONE string arg, not a
+        # shell-tokenized argv. Splitting "node dist/cron/worker.js" into two
+        # args makes concurrently treat "dist/cron/worker.js" as a standalone
+        # binary (Permission denied) and "next start ..." as three separate
+        # commands ("start: not found"). Each command below is one shell string.
+        [
+            "npx", "concurrently",
+            "--restart-tries", "-1",
+            "--restart-after", "1000",
+            "-n", "WORKER,UI",
+            "node dist/cron/worker.js",
+            f"next start --port {UI_PORT}",
         ],
         cwd=f"{TOOLKIT_DIR}/ui",
         env=ui_env,
